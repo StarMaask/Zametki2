@@ -172,6 +172,9 @@ object HandwritingPhotoDigitizer {
                 .replace(Regex("\\n{3,}"), "\n\n")
                 .trim()
 
+            // Decode pseudo-Latin substitutions to restore natural Cyrillic Russian
+            cleaned = CyrillicOcrCorrector.correctPseudoLatinText(cleaned)
+
             cleaned
         } catch (e: Exception) {
             e.printStackTrace()
