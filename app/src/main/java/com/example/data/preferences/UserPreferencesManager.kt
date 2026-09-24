@@ -47,6 +47,8 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_TIMESTAMPS_IN_LECTURE = booleanPreferencesKey("lecture_timestamps")
     private val KEY_RECORD_AUDIO_TRACK = booleanPreferencesKey("lecture_record_audio_track")
     private val KEY_ENABLE_BLUETOOTH_SCO = booleanPreferencesKey("lecture_bluetooth_sco")
+    private val KEY_GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+    private val KEY_OCR_PREFER_AI = booleanPreferencesKey("ocr_prefer_ai")
 
     private val syncPrefs = context.getSharedPreferences("user_settings_sync", Context.MODE_PRIVATE)
 
@@ -393,5 +395,35 @@ class UserPreferencesManager(private val context: Context) {
         val current = LinkedHashMap(getWordReplacementsSync())
         current.remove(wrongWord.trim())
         setWordReplacements(current)
+    }
+
+    val geminiApiKeyFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_GEMINI_API_KEY] ?: syncPrefs.getString("gemini_api_key", "") ?: ""
+    }
+
+    fun getGeminiApiKeySync(): String {
+        return syncPrefs.getString("gemini_api_key", "") ?: ""
+    }
+
+    suspend fun setGeminiApiKey(key: String) {
+        syncPrefs.edit().putString("gemini_api_key", key.trim()).apply()
+        context.dataStore.edit { it[KEY_GEMINI_API_KEY] = key.trim() }
+    }
+
+    fun setGeminiApiKeySync(key: String) {
+        syncPrefs.edit().putString("gemini_api_key", key.trim()).apply()
+    }
+
+    val ocrPreferAiFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_OCR_PREFER_AI] ?: syncPrefs.getBoolean("ocr_prefer_ai", true)
+    }
+
+    fun isOcrPreferAiSync(): Boolean {
+        return syncPrefs.getBoolean("ocr_prefer_ai", true)
+    }
+
+    suspend fun setOcrPreferAi(prefer: Boolean) {
+        syncPrefs.edit().putBoolean("ocr_prefer_ai", prefer).apply()
+        context.dataStore.edit { it[KEY_OCR_PREFER_AI] = prefer }
     }
 }

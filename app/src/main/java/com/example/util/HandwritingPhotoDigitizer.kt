@@ -153,9 +153,9 @@ object HandwritingPhotoDigitizer {
     }
 
     /**
-     * Extracts text from an image (handwritten or printed) using on-device ML Kit OCR with Cyrillic & Latin support.
+     * Extracts text from an image using on-device ML Kit OCR with advanced Cyrillic restoration.
      */
-    suspend fun extractTextFromImage(context: Context, imageUri: Uri): String = withContext(Dispatchers.IO) {
+    suspend fun extractTextFromImageOnDevice(context: Context, imageUri: Uri): String = withContext(Dispatchers.IO) {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         return@withContext try {
             val image = InputImage.fromFilePath(context, imageUri)
@@ -184,6 +184,23 @@ object HandwritingPhotoDigitizer {
                 recognizer.close()
             } catch (_: Exception) {}
         }
+    }
+
+    /**
+     * Smart text extraction: uses Gemini AI if API key is available, falls back to on-device OCR.
+     */
+    suspend fun extractTextFromImage(
+        context: Context,
+        imageUri: Uri,
+        preferAi: Boolean = true
+    ): String = withContext(Dispatchers.IO) {
+        if (preferAi && GeminiOcrService.hasAvailableApiKey(context)) {
+            val aiResult = GeminiOcrService.recognizeTextWithGemini(context, imageUri)
+            if (aiResult.isSuccess) {
+                return@withContext aiResult.getOrThrow()
+            }
+        }
+        return@withContext extractTextFromImageOnDevice(context, imageUri)
     }
 
     private data class PixelMetrics(

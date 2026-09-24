@@ -10,13 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Password
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -60,6 +54,10 @@ fun SettingsScreen(
     var importJsonInput by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf<String?>(null) }
     var showAudioPerceptionDialog by remember { mutableStateOf(false) }
+    var showGeminiKeyDialog by remember { mutableStateOf(false) }
+    var geminiKeyInput by remember { mutableStateOf("") }
+    val geminiApiKey by preferencesManager.geminiApiKeyFlow.collectAsState(initial = "")
+    val ocrPreferAi by preferencesManager.ocrPreferAiFlow.collectAsState(initial = true)
 
     val jsonConfig = Json {
         ignoreUnknownKeys = true
@@ -314,6 +312,107 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
 
+            // AI & OCR TEXT RECOGNITION SECTION
+            Text(
+                text = "Распознавание текста с фото (OCR & ИИ)",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = "Настройка распознавания русского текста с фотографий и досок:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedCard(
+                onClick = {
+                    geminiKeyInput = preferencesManager.getGeminiApiKeySync()
+                    showGeminiKeyDialog = true
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Gemini API ключ",
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = if (geminiApiKey.isNotBlank() || com.example.BuildConfig.GEMINI_API_KEY.isNotBlank())
+                                    "Ключ подключен (сверхточное распознавание)"
+                                else
+                                    "Не указан (нажмите для добавления)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (geminiApiKey.isNotBlank() || com.example.BuildConfig.GEMINI_API_KEY.isNotBlank())
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Предпочитать ИИ при сканировании", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Автоматически использовать Gemini для идеального русского языка без искажений",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = ocrPreferAi,
+                    onCheckedChange = { prefer ->
+                        scope.launch {
+                            preferencesManager.setOcrPreferAi(prefer)
+                        }
+                    }
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
+
             // BACKUP & RESTORE SECTION
             Text(
                 text = "Резервное копирование и перенос",
@@ -490,6 +589,70 @@ fun SettingsScreen(
         AudioPerceptionSettingsDialog(
             preferencesManager = preferencesManager,
             onDismissRequest = { showAudioPerceptionDialog = false }
+        )
+    }
+
+    if (showGeminiKeyDialog) {
+        var isKeyVisible by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showGeminiKeyDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Gemini API ключ")
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Ключ используется для сверхточного распознавания русского текста с фотографий без искажений букв и слов.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = geminiKeyInput,
+                        onValueChange = { geminiKeyInput = it },
+                        label = { Text("API ключ (AIzaSy...)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = if (isKeyVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                Icon(
+                                    if (isKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = null
+                                )
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Бесплатный ключ можно получить на ai.google.dev",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            preferencesManager.setGeminiApiKey(geminiKeyInput.trim())
+                            showGeminiKeyDialog = false
+                            snackbarHostState.showSnackbar("Gemini API ключ сохранен")
+                        }
+                    }
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGeminiKeyDialog = false }) {
+                    Text("Отмена")
+                }
+            }
         )
     }
 }

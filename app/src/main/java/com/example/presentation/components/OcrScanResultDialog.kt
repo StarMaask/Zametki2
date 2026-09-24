@@ -5,7 +5,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,14 +25,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.data.preferences.UserPreferencesManager
 import com.example.util.CyrillicOcrCorrector
+import com.example.util.GeminiOcrService
 import com.example.util.HandwritingPhotoDigitizer
 import kotlinx.coroutines.launch
+
+enum class OcrMode(val title: String, val subtitle: String) {
+    GEMINI_AI("✨ ИИ Gemini", "Идеальный русский язык"),
+    LOCAL_DEVICE("⚡ На устройстве", "Офлайн с нормализатором")
+}
 
 @Composable
 fun OcrScanResultDialog(
@@ -38,22 +51,65 @@ fun OcrScanResultDialog(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val prefs = remember { UserPreferencesManager(context) }
+
+    val hasApiKey = remember { GeminiOcrService.hasAvailableApiKey(context) }
+    var selectedMode by remember {
+        mutableStateOf(if (hasApiKey) OcrMode.GEMINI_AI else OcrMode.LOCAL_DEVICE)
+    }
 
     var isLoading by remember { mutableStateOf(true) }
+    var loadingMessage by remember { mutableStateOf("Распознавание текста...") }
     var recognizedText by remember { mutableStateOf("") }
-    var hasError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(imageUri) {
-        isLoading = true
-        try {
-            val text = HandwritingPhotoDigitizer.extractTextFromImage(context, imageUri)
-            recognizedText = text
-        } catch (e: Exception) {
-            e.printStackTrace()
-            hasError = true
-            recognizedText = "Не удалось распознать текст с изображения. Попробуйте более контрастное фото."
-        } finally {
+    var showApiKeyInput by remember { mutableStateOf(!hasApiKey && selectedMode == OcrMode.GEMINI_AI) }
+    var apiKeyInput by remember { mutableStateOf("") }
+    var isApiKeyVisible by remember { mutableStateOf(false) }
+
+    // Function to run OCR based on active mode
+    fun runRecognition(mode: OcrMode, customKey: String? = null) {
+        coroutineScope.launch {
+            isLoading = true
+            errorMessage = null
+            if (mode == OcrMode.GEMINI_AI) {
+                loadingMessage = "ИИ Gemini распознает русский текст..."
+                val key = customKey ?: prefs.getGeminiApiKeySync()
+                val result = GeminiOcrService.recognizeTextWithGemini(context, imageUri, key)
+                if (result.isSuccess) {
+                    recognizedText = result.getOrNull() ?: ""
+                    errorMessage = null
+                } else {
+                    val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка ИИ"
+                    errorMessage = err
+                    // Fallback to local on-device OCR
+                    Toast.makeText(context, "ИИ недоступен. Переключаем на локальный режим...", Toast.LENGTH_LONG).show()
+                    loadingMessage = "Локальное распознавание и восстановление кириллицы..."
+                    val localText = HandwritingPhotoDigitizer.extractTextFromImageOnDevice(context, imageUri)
+                    recognizedText = localText
+                    selectedMode = OcrMode.LOCAL_DEVICE
+                }
+            } else {
+                loadingMessage = "Локальное распознавание и восстановление кириллицы..."
+                try {
+                    val text = HandwritingPhotoDigitizer.extractTextFromImageOnDevice(context, imageUri)
+                    recognizedText = text
+                    errorMessage = null
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    errorMessage = "Не удалось распознать текст с фото."
+                }
+            }
             isLoading = false
+        }
+    }
+
+    // Initial scan on dialog launch
+    LaunchedEffect(imageUri) {
+        if (hasApiKey) {
+            runRecognition(OcrMode.GEMINI_AI)
+        } else {
+            runRecognition(OcrMode.LOCAL_DEVICE)
         }
     }
 
@@ -63,9 +119,9 @@ fun OcrScanResultDialog(
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .fillMaxHeight(0.85f)
-                .padding(vertical = 12.dp),
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.90f)
+                .padding(vertical = 10.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
@@ -73,9 +129,9 @@ fun OcrScanResultDialog(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp)
+                    .padding(18.dp)
             ) {
-                // Header
+                // Top Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -99,14 +155,14 @@ fun OcrScanResultDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Распознавание с доски/фото",
+                                text = "Распознавание текста с фото",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Русский + Латиница (ML Kit Cyrillic)",
+                                text = if (selectedMode == OcrMode.GEMINI_AI) "Режим: ИИ Gemini (без искажений)" else "Режим: Локально (на устройстве)",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (selectedMode == OcrMode.GEMINI_AI) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                             )
                         }
                     }
@@ -116,7 +172,45 @@ fun OcrScanResultDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Mode Selector Tabs (Gemini AI vs Local Device)
+                TabRow(
+                    selectedTabIndex = selectedMode.ordinal,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                ) {
+                    OcrMode.values().forEach { mode ->
+                        val isSelected = selectedMode == mode
+                        Tab(
+                            selected = isSelected,
+                            onClick = {
+                                if (selectedMode != mode) {
+                                    selectedMode = mode
+                                    if (mode == OcrMode.GEMINI_AI && !GeminiOcrService.hasAvailableApiKey(context)) {
+                                        showApiKeyInput = true
+                                    } else {
+                                        showApiKeyInput = false
+                                        runRecognition(mode)
+                                    }
+                                }
+                            },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = mode.title,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Scrollable Body
                 Column(
@@ -128,7 +222,7 @@ fun OcrScanResultDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(140.dp)
+                            .height(120.dp)
                             .clip(RoundedCornerShape(14.dp))
                     ) {
                         AsyncImage(
@@ -151,7 +245,84 @@ fun OcrScanResultDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // API Key input banner if in Gemini mode and key not configured
+                    AnimatedVisibility(visible = showApiKeyInput && selectedMode == OcrMode.GEMINI_AI) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Filled.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Для сверхточного ИИ укажите Gemini API ключ:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = apiKeyInput,
+                                    onValueChange = { apiKeyInput = it },
+                                    placeholder = { Text("Вставьте AIzaSy...", fontSize = 12.sp) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
+                                            Icon(
+                                                if (isApiKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    },
+                                    textStyle = LocalTextStyle.current.copy(fontSize = 12.sp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    TextButton(onClick = {
+                                        selectedMode = OcrMode.LOCAL_DEVICE
+                                        showApiKeyInput = false
+                                        runRecognition(OcrMode.LOCAL_DEVICE)
+                                    }) {
+                                        Text("Локальный режим", fontSize = 12.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Button(
+                                        onClick = {
+                                            if (apiKeyInput.isNotBlank()) {
+                                                coroutineScope.launch {
+                                                    prefs.setGeminiApiKey(apiKeyInput.trim())
+                                                    showApiKeyInput = false
+                                                    runRecognition(OcrMode.GEMINI_AI, apiKeyInput.trim())
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Введите ключ", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("Распознать через ИИ", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     if (isLoading) {
                         Box(
@@ -164,20 +335,62 @@ fun OcrScanResultDialog(
                                 CircularProgressIndicator(modifier = Modifier.size(36.dp))
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Анализ строк и распознавание текста...",
+                                    text = loadingMessage,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                     } else {
-                        // Editable text area
-                        Text(
-                            text = "Распознанный текст (можно отредактировать):",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        // Header above editor with actions
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Распознанный текст:",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Manual Cyrillic normalization button
+                                TextButton(
+                                    onClick = {
+                                        val fixed = CyrillicOcrCorrector.correctPseudoLatinText(recognizedText)
+                                        recognizedText = fixed
+                                        Toast.makeText(context, "Кириллица исправлена", Toast.LENGTH_SHORT).show()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Filled.AutoFixHigh, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Исправить буквы", fontSize = 11.sp)
+                                }
+
+                                // If in local mode, option to switch to AI
+                                if (selectedMode == OcrMode.LOCAL_DEVICE) {
+                                    TextButton(
+                                        onClick = {
+                                            selectedMode = OcrMode.GEMINI_AI
+                                            if (!GeminiOcrService.hasAvailableApiKey(context)) {
+                                                showApiKeyInput = true
+                                            } else {
+                                                runRecognition(OcrMode.GEMINI_AI)
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("ИИ Gemini", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(6.dp))
 
                         OutlinedTextField(
@@ -185,7 +398,7 @@ fun OcrScanResultDialog(
                             onValueChange = { recognizedText = it },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 150.dp, max = 260.dp),
+                                .heightIn(min = 160.dp, max = 280.dp),
                             shape = RoundedCornerShape(12.dp),
                             textStyle = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp)
                         )
@@ -204,25 +417,39 @@ fun OcrScanResultDialog(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            TextButton(
-                                onClick = {
-                                    val corrected = CyrillicOcrCorrector.correctPseudoLatinText(recognizedText)
-                                    recognizedText = corrected
-                                    Toast.makeText(context, "Кириллица нормализована", Toast.LENGTH_SHORT).show()
-                                },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Icon(Icons.Filled.AutoFixHigh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Автоисправление", fontSize = 11.sp)
+
+                            if (selectedMode == OcrMode.GEMINI_AI) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Точность: ИИ Gemini",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Локальная нормализация",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Bottom Action buttons
                 Row(
@@ -248,7 +475,7 @@ fun OcrScanResultDialog(
 
                     FilledTonalButton(
                         onClick = {
-                            val formatted = "\n\n> 📷 **С доски / слайда:**\n> $recognizedText\n"
+                            val formatted = "\n\n> 📷 **С фото / доски:**\n> $recognizedText\n"
                             onInsertText(formatted, false)
                             Toast.makeText(context, "Добавлено как блок доски", Toast.LENGTH_SHORT).show()
                             onDismissRequest()
