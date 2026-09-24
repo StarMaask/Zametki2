@@ -153,18 +153,33 @@ object HandwritingPhotoDigitizer {
     }
 
     /**
-     * Extracts text from an image (handwritten or printed) using on-device ML Kit OCR.
+     * Extracts text from an image (handwritten or printed) using on-device ML Kit OCR with Cyrillic & Latin support.
      */
     suspend fun extractTextFromImage(context: Context, imageUri: Uri): String = withContext(Dispatchers.IO) {
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         return@withContext try {
             val image = InputImage.fromFilePath(context, imageUri)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             val result = com.google.android.gms.tasks.Tasks.await(recognizer.process(image))
-            val text = result.text.trim()
-            if (text.isNotBlank()) text else "Текст на изображении не обнаружен или написан слишком бледно."
+            val rawText = result.text.trim()
+            if (rawText.isBlank()) {
+                return@withContext "Текст на изображении не обнаружен. Убедитесь, что фотография чёткая и хорошо освещена."
+            }
+
+            // Post-process text: fix hyphens split across lines and excess blank lines
+            var cleaned = rawText
+                .replace(Regex("([а-яА-ЯёЁa-zA-Z])- *\\n *([а-яА-ЯёЁa-zA-Z])"), "$1$2")
+                .replace(Regex("[ \\t]+"), " ")
+                .replace(Regex("\\n{3,}"), "\n\n")
+                .trim()
+
+            cleaned
         } catch (e: Exception) {
             e.printStackTrace()
-            "Текст с фото получен. Проверьте четкость освещения и контрастность листа."
+            "Ошибка при распознавании текста с фото: ${e.localizedMessage ?: "неизвестная ошибка"}. Проверьте четкость снимка."
+        } finally {
+            try {
+                recognizer.close()
+            } catch (_: Exception) {}
         }
     }
 

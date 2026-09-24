@@ -14,6 +14,7 @@ coil = "2.7.0"
 junit = "4.13.2"
 biometric = "1.2.0-alpha05"
 mlkitTextRecognition = "19.0.1"
+mlkitTextRecognitionCyrillic = "16.0.1"
 
 [libraries]
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
@@ -37,6 +38,8 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 mlkit-text-recognition = { group = "com.google.android.gms", name = "play-services-mlkit-text-recognition", version.ref = "mlkitTextRecognition" }
+mlkit-text-recognition-cyrillic = { group = "com.google.mlkit", name = "text-recognition-cyrillic", version.ref = "mlkitTextRecognitionCyrillic" }
+mlkit-text-recognition-play-cyrillic = { group = "com.google.android.gms", name = "play-services-mlkit-text-recognition-cyrillic", version.ref = "mlkitTextRecognition" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -15,6 +15,15 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "1.1"
+
+        val envFile = rootProject.file(".env")
+        val envProperties = java.util.Properties()
+        if (envFile.exists()) {
+            envFile.inputStream().use { envProperties.load(it) }
+        }
+        val geminiKey = System.getenv("GEMINI_API_KEY")
+            ?: envProperties.getProperty("GEMINI_API_KEY", "")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
     buildTypes {

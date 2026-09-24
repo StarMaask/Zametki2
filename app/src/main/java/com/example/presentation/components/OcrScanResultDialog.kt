@@ -103,9 +103,9 @@ fun OcrScanResultDialog(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Локальный сканер текста ML Kit",
+                                text = "Русский + Латиница (ML Kit Cyrillic)",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -208,7 +208,7 @@ fun OcrScanResultDialog(
                 // Bottom Action buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
@@ -219,11 +219,12 @@ fun OcrScanResultDialog(
                             Toast.makeText(context, "Текст скопирован", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                         enabled = !isLoading && recognizedText.isNotBlank()
                     ) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Копировать", fontSize = 12.sp)
+                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Копировать", fontSize = 11.sp, maxLines = 1)
                     }
 
                     FilledTonalButton(
@@ -233,12 +234,13 @@ fun OcrScanResultDialog(
                             Toast.makeText(context, "Добавлено как блок доски", Toast.LENGTH_SHORT).show()
                             onDismissRequest()
                         },
-                        modifier = Modifier.weight(1.1f),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                         enabled = !isLoading && recognizedText.isNotBlank()
                     ) {
-                        Icon(Icons.Filled.FormatQuote, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Как блок", fontSize = 12.sp)
+                        Icon(Icons.Filled.FormatQuote, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Как цитату", fontSize = 11.sp, maxLines = 1)
                     }
 
                     Button(
@@ -247,12 +249,13 @@ fun OcrScanResultDialog(
                             Toast.makeText(context, "Вставлено в заметку", Toast.LENGTH_SHORT).show()
                             onDismissRequest()
                         },
-                        modifier = Modifier.weight(1.2f),
+                        modifier = Modifier.weight(1.1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                         enabled = !isLoading && recognizedText.isNotBlank()
                     ) {
                         Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Вставить", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Вставить", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     }
                 }
             }
