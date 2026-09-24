@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Заметки"
+rootProject.name = "Remix Заметки"
 include(":app")

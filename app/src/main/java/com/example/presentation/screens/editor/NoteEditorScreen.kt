@@ -77,6 +77,7 @@ import com.example.presentation.components.LectureSummaryDialog
 import com.example.presentation.components.TableOfContentsBottomSheet
 import com.example.presentation.components.FlashcardStudyDialog
 import com.example.presentation.components.MindMapDialog
+import com.example.presentation.components.StudyFocusTimerDialog
 import com.example.presentation.components.MathSymbolBar
 import com.example.presentation.components.TableInsertDialog
 import com.example.presentation.components.OcrScanResultDialog
@@ -130,6 +131,7 @@ fun NoteEditorScreen(
     var showTableOfContentsSheet by remember { mutableStateOf(false) }
     var showFlashcardStudyDialog by remember { mutableStateOf(false) }
     var showMindMapDialog by remember { mutableStateOf(false) }
+    var showFocusTimerDialog by remember { mutableStateOf(false) }
     var showMathSymbolBar by remember { mutableStateOf(false) }
     var showTableInsertDialog by remember { mutableStateOf(false) }
     var ocrTargetImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -554,6 +556,19 @@ fun NoteEditorScreen(
                                 onClick = {
                                     showTopMenu = false
                                     showMindMapDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Таймер учёбы (Помодоро)")
+                                        Text("Интервалы концентрации, фоновые звуки и дзен-режим", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.HourglassBottom, null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showFocusTimerDialog = true
                                 }
                             )
                             HorizontalDivider()
@@ -2622,6 +2637,15 @@ fun NoteEditorScreen(
                     scrollState.animateScrollTo(targetScroll)
                 }
             }
+        )
+    }
+
+    if (showFocusTimerDialog) {
+        StudyFocusTimerDialog(
+            noteTitle = state.title,
+            noteCheckList = state.checkList,
+            onToggleCheckItem = { id -> viewModel.toggleChecklistItem(id) },
+            onDismissRequest = { showFocusTimerDialog = false }
         )
     }
 

@@ -32,6 +32,7 @@ import com.example.presentation.components.NoteTemplateDialog
 import com.example.domain.model.PageFormat
 import com.example.presentation.components.FlashcardStudyDialog
 import com.example.presentation.components.MindMapDialog
+import com.example.presentation.components.StudyFocusTimerDialog
 import com.example.presentation.components.StudyStatisticsDialog
 import com.example.presentation.components.PageFormatSelectorDialog
 import com.example.presentation.components.PinSetupDialog
@@ -67,6 +68,7 @@ fun NotesListScreen(
     var showFlashcardStudyForSelection by remember { mutableStateOf(false) }
     var showMindMapForSelection by remember { mutableStateOf(false) }
     var showStudyStatisticsDialog by remember { mutableStateOf(false) }
+    var showFocusTimerDialog by remember { mutableStateOf(false) }
     var noteToShare by remember { mutableStateOf<Note?>(null) }
 
     var targetLockedNoteId by remember { mutableStateOf<Long?>(null) }
@@ -115,6 +117,13 @@ fun NotesListScreen(
                                 },
                                 icon = Icons.Filled.Hub,
                                 tooltip = "Интеллект-карта выбранных конспектов"
+                            )
+                            TooltipIconButton(
+                                onClick = {
+                                    showFocusTimerDialog = true
+                                },
+                                icon = Icons.Filled.HourglassBottom,
+                                tooltip = "Таймер концентрации по выбранным"
                             )
                             TooltipIconButton(
                                 onClick = {
@@ -221,6 +230,12 @@ fun NotesListScreen(
                             tooltip = "Академическая статистика"
                         )
                         TooltipIconButton(
+                            onClick = { showFocusTimerDialog = true },
+                            icon = Icons.Filled.HourglassBottom,
+                            tooltip = "Таймер концентрации (Помодоро)",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        TooltipIconButton(
                             onClick = { showFilterSheet = true },
                             icon = Icons.AutoMirrored.Filled.Sort,
                             tooltip = "Сортировка и фильтры"
@@ -280,6 +295,19 @@ fun NotesListScreen(
                                     onClick = {
                                         menuExpanded = false
                                         showStudyStatisticsDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Таймер учёбы (Помодоро)")
+                                            Text("Интервалы концентрации и фоновые звуки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.HourglassBottom, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        showFocusTimerDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
@@ -675,6 +703,17 @@ fun NotesListScreen(
         StudyStatisticsDialog(
             notes = state.notes,
             onDismissRequest = { showStudyStatisticsDialog = false }
+        )
+    }
+
+    if (showFocusTimerDialog) {
+        val selectedNotes = state.notes.filter { state.selectedNoteIds.contains(it.id) }
+        val title = if (selectedNotes.isNotEmpty()) {
+            selectedNotes.joinToString(", ") { it.title.ifBlank { "Без названия" } }
+        } else ""
+        StudyFocusTimerDialog(
+            noteTitle = title,
+            onDismissRequest = { showFocusTimerDialog = false }
         )
     }
 

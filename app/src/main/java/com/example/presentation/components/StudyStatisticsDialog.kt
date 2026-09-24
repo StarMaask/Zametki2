@@ -1,5 +1,6 @@
 package com.example.presentation.components
 
+import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,6 +128,11 @@ fun StudyStatisticsDialog(
                         )
                     }
 
+                    val context = LocalContext.current
+                    val pomodoroPrefs = remember { context.getSharedPreferences("pomodoro_study_stats", Context.MODE_PRIVATE) }
+                    val pomodoroCycles = pomodoroPrefs.getInt("completed_cycles_today", 0)
+                    val pomodoroFocusMinutes = pomodoroCycles * 25
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -139,11 +146,11 @@ fun StudyStatisticsDialog(
                             modifier = Modifier.weight(1f)
                         )
                         MetricCard(
-                            title = "Вопросов для самопроверки",
-                            value = "${stats.reviewQuestions}",
-                            subtitle = "Сформировано карточек",
-                            icon = Icons.Filled.Quiz,
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            title = "Помодоро сегодня",
+                            value = "$pomodoroCycles 🍅",
+                            subtitle = if (pomodoroCycles > 0) "$pomodoroFocusMinutes мин концентрации" else "Начните сессию",
+                            icon = Icons.Filled.HourglassBottom,
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
                             modifier = Modifier.weight(1f)
                         )
                     }
