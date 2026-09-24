@@ -1,11 +1,21 @@
-<div align="center">
+# Notes Android App
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Android-приложение для заметок, созданное с использованием Jetpack Compose и Room.
 
-  <h1>Built with AI Studio</h2>
+## Как собрать APK через GitHub Actions
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+В проекте настроен автоматический CI workflow: `.github/workflows/build-apk.yml`.
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+### Запуск сборки:
+1. Запушьте код в репозиторий GitHub в ветку `main` (или перейдите во вкладку **Actions** в GitHub и запустите workflow вручную через **Run workflow**).
+2. Дождитесь завершения задачи **Build APK** (обычно 2–4 минуты).
+3. Перейдите в завершенный запуск workflow — в секции **Artifacts** появится архив **Notes-Debug-APK** с готовым установочным файлом `app-debug.apk`.
+4. Скачайте его на телефон и установите.
 
-</div>
+## Локальная сборка через Android Studio / терминал
+
+```bash
+./gradlew assembleDebug
+```
+Готовый APK будет находиться по пути:
+`app/build/outputs/apk/debug/app-debug.apk`

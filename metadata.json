@@ -1,0 +1,8 @@
+{
+  "name": "Remix Заметки",
+  "description": "Мощное локальное Android-приложение для заметок с адаптивным Material 3 дизайном, поиском, тегами и напоминаниями",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
