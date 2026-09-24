@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -17,7 +19,7 @@ android {
         versionName = "1.1"
 
         val envFile = rootProject.file(".env")
-        val envProperties = java.util.Properties()
+        val envProperties = Properties()
         if (envFile.exists()) {
             envFile.inputStream().use { envProperties.load(it) }
         }

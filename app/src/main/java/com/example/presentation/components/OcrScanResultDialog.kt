@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.util.CyrillicOcrCorrector
 import com.example.util.HandwritingPhotoDigitizer
 import kotlinx.coroutines.launch
 
@@ -193,11 +194,29 @@ fun OcrScanResultDialog(
                         val wordCount = remember(recognizedText) {
                             recognizedText.split(Regex("\\s+")).count { it.isNotBlank() }
                         }
-                        Text(
-                            text = "Слов: $wordCount  •  Символов: ${recognizedText.length}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Слов: $wordCount  •  Символов: ${recognizedText.length}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = {
+                                    val corrected = CyrillicOcrCorrector.correctPseudoLatinText(recognizedText)
+                                    recognizedText = corrected
+                                    Toast.makeText(context, "Кириллица нормализована", Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Filled.AutoFixHigh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Автоисправление", fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
 
