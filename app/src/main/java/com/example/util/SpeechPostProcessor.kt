@@ -4,14 +4,15 @@ import java.util.Locale
 
 /**
  * Processor for transcribed speech text.
- * - Replaces misheard/misrecognized words according to user-defined dictionary rules.
+ * - Replaces misheard/misrecognized words according to user-defined dictionary rules and academic glossary.
  * - Converts spoken punctuation commands into punctuation marks.
- * - Normalizes spacing and capitalization after punctuation.
+ * - Filters verbal stutters and filler sounds ("эээ", "ну", repeated words).
+ * - Structures raw continuous lecture transcripts into organized notes with headings and bullet points.
  */
 object SpeechPostProcessor {
 
     /**
-     * Default common speech recognition corrections for Russian and common loanwords.
+     * Default common speech recognition corrections for Russian, academic lectures, and common loanwords.
      */
     val DEFAULT_CORRECTIONS = mapOf(
         "итд" to "и т. д.",
@@ -29,8 +30,47 @@ object SpeechPostProcessor {
         "онлайн" to "онлайн",
         "офлайн" to "офлайн",
         "ии" to "ИИ",
-        "джпт" to "GPT"
+        "джпт" to "GPT",
+        // Academic lecture terms and connectors
+        "во первых" to "во-первых,",
+        "во вторых" to "во-вторых,",
+        "в третьих" to "в-третьих,",
+        "в четвертых" to "в-четвертых,",
+        "в пятых" to "в-пятых,",
+        "таким образом" to "таким образом,",
+        "следовательно" to "следовательно,",
+        "то есть" to "то есть",
+        "так как" to "так как",
+        "например" to "например,",
+        "к примеру" to "к примеру,",
+        "обратите внимание" to "Обратите внимание:",
+        "подведем итог" to "Подведем итог:",
+        "в итоге" to "в итоге,",
+        "по определению" to "по определению",
+        "согласно теореме" to "согласно теореме",
+        "формула" to "формула",
+        "коэффициент" to "коэффициент",
+        "дифференциал" to "дифференциал",
+        "интеграл" to "интеграл",
+        "производная" to "производная",
+        "алгоритм" to "алгоритм",
+        "гипотеза" to "гипотеза",
+        "вероятность" to "вероятность"
     )
+
+    /**
+     * Filters verbal hesitations and stutters common in live lectures.
+     */
+    fun cleanVerbalFillers(text: String): String {
+        var res = text
+        // Remove isolated hesitation sounds like "эээ", "ммм", "ааа", "ээ", "мм"
+        res = res.replace(Regex("(?i)\\b(э{2,}|м{2,}|а{2,}|гм|хм)\\b[,.]?"), "")
+        // Clean double repeated words like "в в", "на на", "что что", "мы мы"
+        res = res.replace(Regex("(?i)\\b([а-яa-z]{1,4})\\s+\\1\\b"), "$1")
+        // Clean consecutive spaces
+        res = res.replace(Regex("[ \\t]{2,}"), " ")
+        return res.trim()
+    }
 
     fun process(
         text: String,
@@ -39,7 +79,7 @@ object SpeechPostProcessor {
     ): String {
         if (text.isBlank()) return text
 
-        var result = text
+        var result = cleanVerbalFillers(text)
 
         // 1. Merge default corrections and user-defined dictionary rules (user overrides take precedence)
         val allRules = LinkedHashMap<String, String>()
@@ -117,6 +157,80 @@ object SpeechPostProcessor {
     }
 
     /**
+     * Intelligently structures raw continuous lecture speech into clean, formatted notes:
+     * - Breaks long monologue into logical paragraphs
+     * - Converts enumerations ("во-первых...", "пункт 1...") into markdown bullet lists
+     * - Highlights academic definitions, theorems, and conclusions
+     */
+    fun structureLectureTranscript(rawText: String): String {
+        if (rawText.isBlank()) return rawText
+
+        var cleaned = cleanVerbalFillers(rawText)
+        cleaned = process(cleaned, enableSmartPunctuation = true)
+
+        // Split sentences by sentence-ending punctuation
+        val sentences = cleaned.split(Regex("(?<=[.!?])\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+        if (sentences.isEmpty()) return cleaned
+
+        val output = StringBuilder()
+        var inBulletList = false
+
+        for (sentence in sentences) {
+            val lower = sentence.lowercase(Locale.getDefault())
+
+            // 1. Topic or Chapter headings
+            if (lower.startsWith("тема лекции") || lower.startsWith("тема:") || lower.startsWith("запишите тему")) {
+                if (output.isNotEmpty()) output.append("\n\n")
+                output.append("## ").append(sentence).append("\n")
+                inBulletList = false
+                continue
+            }
+
+            // 2. Definitions or Theorems
+            if (lower.startsWith("определение") || lower.startsWith("теорема") || lower.startsWith("лемма") || lower.startsWith("правило")) {
+                if (output.isNotEmpty()) output.append("\n\n")
+                output.append("> **").append(sentence).append("**\n")
+                inBulletList = false
+                continue
+            }
+
+            // 3. Enumerated items ("во-первых", "пункт", "1.", etc.)
+            val isEnumeration = lower.startsWith("во-первых") || lower.startsWith("во-вторых") ||
+                    lower.startsWith("в-третьих") || lower.startsWith("в-четвертых") ||
+                    lower.startsWith("пункт ") || lower.startsWith("следующий пункт") ||
+                    lower.startsWith("первый пункт") || lower.startsWith("второй пункт")
+
+            if (isEnumeration) {
+                if (!inBulletList && output.isNotEmpty()) output.append("\n")
+                output.append("• ").append(sentence).append("\n")
+                inBulletList = true
+                continue
+            }
+
+            // 4. Important remarks or conclusions
+            if (lower.startsWith("обратите внимание") || lower.startsWith("важно помнить") ||
+                lower.startsWith("вывод:") || lower.startsWith("подведем итог")) {
+                if (output.isNotEmpty()) output.append("\n\n")
+                output.append("💡 **").append(sentence).append("**\n")
+                inBulletList = false
+                continue
+            }
+
+            // Regular sentence: group into paragraphs every ~3-4 sentences
+            if (inBulletList) {
+                output.append("\n")
+                inBulletList = false
+            }
+            if (output.isNotEmpty() && !output.endsWith("\n\n") && !output.endsWith("\n")) {
+                output.append(" ")
+            }
+            output.append(sentence)
+        }
+
+        return output.toString().trim()
+    }
+
+    /**
      * Given multiple speech recognition alternatives, picks the best candidate,
      * prioritizing ones that match user dictionary replacements or have better structure.
      */
@@ -137,6 +251,8 @@ object SpeechPostProcessor {
             }
         }
 
-        return candidates.first()
+        // Return candidate with the most words (most complete transcription)
+        return candidates.maxByOrNull { it.split(Regex("\\s+")).size } ?: candidates.first()
     }
 }
+

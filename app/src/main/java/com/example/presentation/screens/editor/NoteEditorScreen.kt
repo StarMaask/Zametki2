@@ -936,6 +936,21 @@ fun NoteEditorScreen(
                             Icon(Icons.Filled.Tune, contentDescription = "Качество восприятия звука", modifier = Modifier.size(16.dp))
                         }
 
+                        // Умная структуризация конспекта лекции
+                        FilledTonalIconButton(
+                            onClick = {
+                                val changed = viewModel.structureLectureContent()
+                                if (changed) {
+                                    Toast.makeText(context, "Конспект лекции структурирован!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Текст уже структурирован или пуст", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = "Структурировать лекцию", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+
                         // Озвучить текст (Text-to-Speech)
                         FilledTonalButton(
                             onClick = {
@@ -1045,14 +1060,32 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Звук в текст (Диктовка)")
-                                            Text("Голосовой ввод речи прямо в заметку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Лекция: Звук в текст (Непрерывно)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Запись длинных лекций без пауз и пропуска слов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null) },
+                                    leadingIcon = { Icon(Icons.Filled.Mic, null, tint = MaterialTheme.colorScheme.primary) },
                                     onClick = {
                                         showInsertMenu = false
-                                        startSpeechToText()
+                                        toggleLectureRecording()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Структурировать конспект лекции")
+                                            Text("Разбить на темы, тезисы, списки и формулы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        val changed = viewModel.structureLectureContent()
+                                        if (changed) {
+                                            Toast.makeText(context, "Конспект лекции структурирован!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Текст уже структурирован или пуст", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 )
                                 DropdownMenuItem(

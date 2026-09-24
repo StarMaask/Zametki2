@@ -254,6 +254,25 @@ class NoteEditorViewModel(
     fun onAudioUriChange(uri: String?) { _uiState.update { it.copy(audioUri = uri) } }
     fun onReminderChange(time: Long?) { _uiState.update { it.copy(reminderTime = time) } }
 
+    fun structureLectureContent(): Boolean {
+        val currentContent = _uiState.value.content
+        if (currentContent.isBlank()) return false
+        val structured = com.example.util.SpeechPostProcessor.structureLectureTranscript(currentContent)
+        if (structured != currentContent) {
+            undoStack.add(currentContent)
+            redoStack.clear()
+            _uiState.update {
+                it.copy(
+                    content = structured,
+                    canUndo = undoStack.isNotEmpty(),
+                    canRedo = redoStack.isNotEmpty()
+                )
+            }
+            return true
+        }
+        return false
+    }
+
     fun appendFormatting(prefix: String, suffix: String = "") {
         _uiState.update { current ->
             val currentText = current.content

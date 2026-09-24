@@ -51,6 +51,8 @@ class LectureTranscriptionManager(private val context: Context) {
     private var onTextAppendedCallback: ((String) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var consecutiveErrors = 0
+    private var lastPartialRaw = ""
+    private var lastCommittedRaw = ""
 
     // Sound muting state to silence the mic start/stop "beep/ding" audio signal
     private var wasMuted = false
@@ -94,6 +96,18 @@ class LectureTranscriptionManager(private val context: Context) {
 
         override fun onError(error: Int) {
             isListening = false
+
+            // CRITICAL FIX: Do NOT discard words spoken prior to pause or timeout!
+            // If the recognizer timed out while user was speaking, commit the partial hypothesis.
+            val pendingHypothesis = lastPartialRaw.trim()
+            if (pendingHypothesis.isNotBlank() && pendingHypothesis != lastCommittedRaw) {
+                val formatted = formatRecognizedChunk(pendingHypothesis)
+                if (formatted.isNotBlank()) {
+                    onTextAppendedCallback?.invoke(formatted)
+                    lastCommittedRaw = pendingHypothesis
+                }
+            }
+            lastPartialRaw = ""
             partialHypothesis = ""
 
             if (!isRecording || isPaused) return
@@ -103,21 +117,23 @@ class LectureTranscriptionManager(private val context: Context) {
                 return
             }
 
-            consecutiveErrors++
-
             // Normal silence pauses (ERROR_NO_MATCH = 7, ERROR_SPEECH_TIMEOUT = 6)
             val isNormalSilence = error == SpeechRecognizer.ERROR_NO_MATCH ||
                     error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
 
-            if (isNormalSilence && consecutiveErrors <= 2) {
-                // Speaker simply paused or took a breath. Clean cancel and smoothly resume listening
+            if (isNormalSilence) {
+                // Speaker simply paused or took a breath during the lecture.
+                // Do NOT destroy or recreate the recognizer; immediately resume listening with minimal 30ms gap!
                 cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
-                mainHandler.postDelayed(restartRunnable, 250)
+                mainHandler.postDelayed(restartRunnable, 30L)
+            } else if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) {
+                // Recover swiftly from transient recognizer busy state
+                recreateRecognizerAndRestart(delayMs = 120L)
             } else {
-                // Recognizer busy (8), client error (5), audio (3), network (1,2,4), or repeated timeouts:
-                // Completely recreate the recognizer so it never gets locked in a busy loop!
-                recreateRecognizerAndRestart(delayMs = 350)
+                consecutiveErrors++
+                val delay = if (consecutiveErrors > 3) 500L else 180L
+                recreateRecognizerAndRestart(delayMs = delay)
             }
         }
 
@@ -133,13 +149,16 @@ class LectureTranscriptionManager(private val context: Context) {
                 val formatted = formatRecognizedChunk(bestCandidate)
                 if (formatted.isNotBlank()) {
                     onTextAppendedCallback?.invoke(formatted)
+                    lastCommittedRaw = bestCandidate
                 }
             }
+            lastPartialRaw = ""
 
             if (isRecording && !isPaused) {
                 cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
-                mainHandler.postDelayed(restartRunnable, 200)
+                // Minimal 30ms gap so the next sentence uttered by the lecturer is never missed!
+                mainHandler.postDelayed(restartRunnable, 30L)
             }
         }
 
@@ -147,6 +166,7 @@ class LectureTranscriptionManager(private val context: Context) {
             val partialMatches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             val partial = partialMatches?.firstOrNull()?.trim() ?: ""
             if (partial.isNotBlank()) {
+                lastPartialRaw = partial
                 val enableSmartPunct = preferencesManager.isSmartPunctuationSync()
                 val wordReplacements = preferencesManager.getWordReplacementsSync()
                 partialHypothesis = SpeechPostProcessor.process(partial, enableSmartPunct, wordReplacements)
@@ -289,9 +309,13 @@ class LectureTranscriptionManager(private val context: Context) {
                 }
 
                 // Generous timeouts to capture continuous speech without interrupting the speaker:
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300000L) // 5 minutes continuous session
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L) // 4 sec complete silence before closing chunk
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L) // 3.5 sec pause
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 900000L) // 15 minutes continuous session
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 7000L) // 7 sec complete silence before closing chunk
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 5000L) // 5 sec pause
+
+                // Enable modern speech formatting (numbers, punctuation, capitalization) and keep lecture vocabulary unmasked
+                putExtra("android.speech.extra.ENABLE_FORMATTING", true)
+                putExtra("android.speech.extra.MASK_OFFENSIVE_WORDS", false)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)
