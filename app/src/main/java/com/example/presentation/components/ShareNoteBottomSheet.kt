@@ -6,7 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +26,17 @@ fun ShareNoteBottomSheet(
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showPdfDialog by remember { mutableStateOf(false) }
+
+    if (showPdfDialog) {
+        PdfExportDialog(
+            note = note,
+            onDismissRequest = {
+                showPdfDialog = false
+                onDismissRequest()
+            }
+        )
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -89,11 +100,11 @@ fun ShareNoteBottomSheet(
 
             ShareOptionItem(
                 icon = Icons.Filled.PictureAsPdf,
-                title = "Документ PDF (.pdf)",
-                subtitle = "Формат A4 для печати, архива и официальной отправки",
+                title = "Печать и документ PDF (.pdf)",
+                subtitle = "Многостраничный A4, тетрадь, нумерация страниц и печать",
+                badge = "Новое",
                 onClick = {
-                    onDismissRequest()
-                    ShareExportUtil.shareAsPdf(context, note)
+                    showPdfDialog = true
                 }
             )
 
@@ -104,6 +115,16 @@ fun ShareNoteBottomSheet(
                 onClick = {
                     onDismissRequest()
                     ShareExportUtil.shareAsTxtFile(context, note)
+                }
+            )
+
+            ShareOptionItem(
+                icon = Icons.Filled.Code,
+                title = "Документ Markdown (.md)",
+                subtitle = "Для Obsidian, Notion, GitHub, Typora и баз знаний",
+                onClick = {
+                    onDismissRequest()
+                    ShareExportUtil.shareAsMarkdownFile(context, note)
                 }
             )
 

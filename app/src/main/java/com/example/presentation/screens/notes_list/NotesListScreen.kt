@@ -29,6 +29,11 @@ import com.example.presentation.components.FilterBottomSheet
 import com.example.presentation.components.HelpDialog
 import com.example.presentation.components.NoteCard
 import com.example.presentation.components.NoteTemplateDialog
+import com.example.domain.model.PageFormat
+import com.example.presentation.components.FlashcardStudyDialog
+import com.example.presentation.components.MindMapDialog
+import com.example.presentation.components.StudyStatisticsDialog
+import com.example.presentation.components.PageFormatSelectorDialog
 import com.example.presentation.components.PinSetupDialog
 import com.example.presentation.components.PinVerifyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
@@ -56,8 +61,12 @@ fun NotesListScreen(
     var showFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
     var showColorDialog by remember { mutableStateOf(false) }
+    var showFormatDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
+    var showFlashcardStudyForSelection by remember { mutableStateOf(false) }
+    var showMindMapForSelection by remember { mutableStateOf(false) }
+    var showStudyStatisticsDialog by remember { mutableStateOf(false) }
     var noteToShare by remember { mutableStateOf<Note?>(null) }
 
     var targetLockedNoteId by remember { mutableStateOf<Long?>(null) }
@@ -95,11 +104,39 @@ fun NotesListScreen(
                         if (state.selectedNoteIds.isNotEmpty()) {
                             TooltipIconButton(
                                 onClick = {
-                                    val note = state.notes.firstOrNull { state.selectedNoteIds.contains(it.id) }
-                                    if (note != null) noteToShare = note
+                                    showFlashcardStudyForSelection = true
+                                },
+                                icon = Icons.Filled.School,
+                                tooltip = "Учить выбранные конспекты (Карточки)"
+                            )
+                            TooltipIconButton(
+                                onClick = {
+                                    showMindMapForSelection = true
+                                },
+                                icon = Icons.Filled.Hub,
+                                tooltip = "Интеллект-карта выбранных конспектов"
+                            )
+                            TooltipIconButton(
+                                onClick = {
+                                    val selectedList = state.notes.filter { state.selectedNoteIds.contains(it.id) }
+                                    if (selectedList.size == 1) {
+                                        noteToShare = selectedList.first()
+                                    } else if (selectedList.size > 1) {
+                                        val combined = Note(
+                                            id = 0L,
+                                            title = "Подборка заметок (${selectedList.size})",
+                                            content = selectedList.joinToString("\n\n---\n\n") { n ->
+                                                val header = if (n.title.isNotBlank()) "## ${n.title}\n" else ""
+                                                val meta = if (!n.folder.isNullOrBlank()) "*Папка: ${n.folder}*\n\n" else ""
+                                                "$header$meta${n.content}"
+                                            },
+                                            updatedAt = System.currentTimeMillis()
+                                        )
+                                        noteToShare = combined
+                                    }
                                 },
                                 icon = Icons.Filled.Share,
-                                tooltip = "Поделиться заметкой"
+                                tooltip = "Поделиться выбранными"
                             )
                         }
                         val anyUnpinned = state.notes.filter { state.selectedNoteIds.contains(it.id) }.any { !it.isPinned }
@@ -123,6 +160,11 @@ fun NotesListScreen(
                             onClick = { showColorDialog = true },
                             icon = Icons.Filled.Palette,
                             tooltip = "Изменить цвет выбранных"
+                        )
+                        TooltipIconButton(
+                            onClick = { showFormatDialog = true },
+                            icon = Icons.Filled.AutoStories,
+                            tooltip = "Стиль тетради/листа для выбранных"
                         )
                         TooltipIconButton(
                             onClick = { showFolderDialog = true },
@@ -154,9 +196,10 @@ fun NotesListScreen(
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleLarge
                             )
-                            if (state.selectedTag != null || state.selectedColor != null) {
+                            if (state.selectedTag != null || state.selectedColor != null || state.selectedFormat != null) {
                                 Text(
                                     text = buildString {
+                                        if (state.selectedFormat != null) append("формат: ${state.selectedFormat} ")
                                         if (state.selectedTag != null) append("#${state.selectedTag} ")
                                         if (state.selectedColor != null) append("цветовой фильтр")
                                     },
@@ -171,6 +214,11 @@ fun NotesListScreen(
                             onClick = onSearchClick,
                             icon = Icons.Filled.Search,
                             tooltip = "Поиск по заметкам и тегам"
+                        )
+                        TooltipIconButton(
+                            onClick = { showStudyStatisticsDialog = true },
+                            icon = Icons.Filled.Analytics,
+                            tooltip = "Академическая статистика"
                         )
                         TooltipIconButton(
                             onClick = { showFilterSheet = true },
@@ -221,6 +269,19 @@ fun NotesListScreen(
                                     }
                                 )
                                 HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Академическая статистика")
+                                            Text("Прогресс учебы, дедлайны, объем", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Analytics, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        showStudyStatisticsDialog = true
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = {
                                         Column {
@@ -288,7 +349,7 @@ fun NotesListScreen(
                 .padding(paddingValues)
         ) {
             // Active Filter Chips Bar (if any filter is active)
-            val hasActiveFilter = state.selectedColor != null || state.selectedTag != null || state.selectedFolder != null
+            val hasActiveFilter = state.selectedColor != null || state.selectedTag != null || state.selectedFolder != null || state.selectedFormat != null
             if (hasActiveFilter) {
                 Surface(
                     tonalElevation = 2.dp,
@@ -307,6 +368,19 @@ fun NotesListScreen(
                                 label = { Text("Сбросить всё") },
                                 icon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
+                        }
+                        if (state.selectedFormat != null) {
+                            item {
+                                val fmtTitle = try {
+                                    PageFormat.valueOf(state.selectedFormat!!).title
+                                } catch (_: Exception) { state.selectedFormat!! }
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.setFormatFilter(null) },
+                                    label = { Text("Формат: $fmtTitle") },
+                                    trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                )
+                            }
                         }
                         if (state.selectedFolder != null) {
                             item {
@@ -338,6 +412,51 @@ fun NotesListScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            // Horizontal Course / Folder Tabs Bar
+            if (state.availableFolders.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    item {
+                        FilterChip(
+                            selected = state.selectedFolder == null,
+                            onClick = { viewModel.setFolderFilter(null) },
+                            label = { Text("Все заметки (${state.notes.size})") },
+                            leadingIcon = if (state.selectedFolder == null) {
+                                { Icon(Icons.Filled.AllInclusive, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null
+                        )
+                    }
+
+                    items(state.availableFolders) { folderName ->
+                        val count = state.notes.count { it.folder == folderName }
+                        val isSelected = state.selectedFolder == folderName
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                if (isSelected) {
+                                    viewModel.setFolderFilter(null)
+                                } else {
+                                    viewModel.setFolderFilter(folderName)
+                                }
+                            },
+                            label = { Text("$folderName ($count)") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (isSelected) Icons.Filled.FolderOpen else Icons.Filled.Folder,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        )
                     }
                 }
             }
@@ -433,6 +552,8 @@ fun NotesListScreen(
             selectedFolder = state.selectedFolder,
             onFolderSelected = { viewModel.setFolderFilter(it) },
             availableFolders = state.availableFolders,
+            selectedFormat = state.selectedFormat,
+            onFormatSelected = { viewModel.setFormatFilter(it) },
             sortOrder = state.sortOrder,
             onSortOrderSelected = { viewModel.setSortOrder(it) },
             onClearAllFilters = {
@@ -534,6 +655,29 @@ fun NotesListScreen(
         )
     }
 
+    if (showFormatDialog) {
+        PageFormatSelectorDialog(
+            currentFormat = PageFormat.BOOK,
+            currentColorHex = "#FFFFFF",
+            onDismissRequest = { showFormatDialog = false },
+            onFormatSelect = { format ->
+                viewModel.changePageFormatForSelected(format.name)
+                showFormatDialog = false
+            },
+            onColorSelect = { hex ->
+                viewModel.changeColorForSelected(hex)
+                showFormatDialog = false
+            }
+        )
+    }
+
+    if (showStudyStatisticsDialog) {
+        StudyStatisticsDialog(
+            notes = state.notes,
+            onDismissRequest = { showStudyStatisticsDialog = false }
+        )
+    }
+
     if (showTemplateDialog) {
         NoteTemplateDialog(
             onDismissRequest = { showTemplateDialog = false },
@@ -585,6 +729,29 @@ fun NotesListScreen(
                 showPinSetupDialog = false
                 targetLockedNoteId = null
             }
+        )
+    }
+
+    if (showFlashcardStudyForSelection) {
+        val selectedNotes = state.notes.filter { state.selectedNoteIds.contains(it.id) }
+        val combinedTitle = if (selectedNotes.size == 1) selectedNotes.first().title else "Выбранные конспекты (${selectedNotes.size})"
+        val combinedContent = selectedNotes.joinToString("\n\n---\n\n") { "${it.title}\n${it.content}" }
+        FlashcardStudyDialog(
+            noteTitle = combinedTitle,
+            noteContent = combinedContent,
+            onDismissRequest = { showFlashcardStudyForSelection = false }
+        )
+    }
+
+    if (showMindMapForSelection) {
+        val selectedNotes = state.notes.filter { state.selectedNoteIds.contains(it.id) }
+        val combinedTitle = if (selectedNotes.size == 1) selectedNotes.first().title else "Интеллект-карта (${selectedNotes.size} консп.)"
+        val combinedContent = selectedNotes.joinToString("\n\n---\n\n") { "${it.title}\n${it.content}" }
+        MindMapDialog(
+            noteTitle = combinedTitle,
+            noteContent = combinedContent,
+            onDismissRequest = { showMindMapForSelection = false },
+            onNavigateToOffset = null
         )
     }
 }

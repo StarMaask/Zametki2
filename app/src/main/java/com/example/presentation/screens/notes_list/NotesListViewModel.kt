@@ -20,6 +20,7 @@ data class NotesListUiState(
     val selectedColor: String? = null,
     val selectedTag: String? = null,
     val selectedFolder: String? = null,
+    val selectedFormat: String? = null,
     val sortOrder: SortOrder = SortOrder.DATE_UPDATED,
     val availableTags: List<String> = emptyList(),
     val availableFolders: List<String> = emptyList(),
@@ -60,7 +61,7 @@ class NotesListViewModel(
                     current.copy(
                         notes = notes,
                         availableTags = allTags,
-                        filteredNotes = sortAndFilterNotes(notes, current.selectedColor, current.selectedTag, current.selectedFolder, current.sortOrder)
+                        filteredNotes = sortAndFilterNotes(notes, current.selectedColor, current.selectedTag, current.selectedFolder, current.selectedFormat, current.sortOrder)
                     )
                 }
             }
@@ -80,13 +81,15 @@ class NotesListViewModel(
         color: String?,
         tag: String?,
         folder: String?,
+        format: String?,
         sortOrder: SortOrder
     ): List<Note> {
         val filtered = notes.filter { note ->
             val matchesColor = color == null || note.colorHex.equals(color, ignoreCase = true)
             val matchesTag = tag == null || note.tags.contains(tag)
             val matchesFolder = folder == null || note.folder == folder
-            matchesColor && matchesTag && matchesFolder
+            val matchesFormat = format == null || note.pageFormat.equals(format, ignoreCase = true)
+            matchesColor && matchesTag && matchesFolder && matchesFormat
         }
 
         return when (sortOrder) {
@@ -100,7 +103,7 @@ class NotesListViewModel(
         _uiState.update {
             it.copy(
                 sortOrder = order,
-                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, it.selectedTag, it.selectedFolder, order)
+                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, it.selectedTag, it.selectedFolder, it.selectedFormat, order)
             )
         }
     }
@@ -111,7 +114,8 @@ class NotesListViewModel(
                 selectedColor = null,
                 selectedTag = null,
                 selectedFolder = null,
-                filteredNotes = sortAndFilterNotes(it.notes, null, null, null, it.sortOrder)
+                selectedFormat = null,
+                filteredNotes = sortAndFilterNotes(it.notes, null, null, null, null, it.sortOrder)
             )
         }
     }
@@ -120,7 +124,7 @@ class NotesListViewModel(
         _uiState.update {
             it.copy(
                 selectedColor = color,
-                filteredNotes = sortAndFilterNotes(it.notes, color, it.selectedTag, it.selectedFolder, it.sortOrder)
+                filteredNotes = sortAndFilterNotes(it.notes, color, it.selectedTag, it.selectedFolder, it.selectedFormat, it.sortOrder)
             )
         }
     }
@@ -129,7 +133,7 @@ class NotesListViewModel(
         _uiState.update {
             it.copy(
                 selectedTag = tag,
-                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, tag, it.selectedFolder, it.sortOrder)
+                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, tag, it.selectedFolder, it.selectedFormat, it.sortOrder)
             )
         }
     }
@@ -138,7 +142,16 @@ class NotesListViewModel(
         _uiState.update {
             it.copy(
                 selectedFolder = folder,
-                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, it.selectedTag, folder, it.sortOrder)
+                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, it.selectedTag, folder, it.selectedFormat, it.sortOrder)
+            )
+        }
+    }
+
+    fun setFormatFilter(format: String?) {
+        _uiState.update {
+            it.copy(
+                selectedFormat = format,
+                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, it.selectedTag, it.selectedFolder, format, it.sortOrder)
             )
         }
     }
@@ -223,6 +236,17 @@ class NotesListViewModel(
             val toUpdate = _uiState.value.notes.filter { selected.contains(it.id) }
             toUpdate.forEach { note ->
                 repository.updateNote(note.copy(colorHex = hex, updatedAt = System.currentTimeMillis()))
+            }
+            clearSelection()
+        }
+    }
+
+    fun changePageFormatForSelected(formatName: String) {
+        viewModelScope.launch {
+            val selected = _uiState.value.selectedNoteIds
+            val toUpdate = _uiState.value.notes.filter { selected.contains(it.id) }
+            toUpdate.forEach { note ->
+                repository.updateNote(note.copy(pageFormat = formatName, updatedAt = System.currentTimeMillis()))
             }
             clearSelection()
         }

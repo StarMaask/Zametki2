@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,7 +41,9 @@ fun MarkdownRenderer(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        for (line in lines) {
+        var lineIndex = 0
+        while (lineIndex < lines.size) {
+            val line = lines[lineIndex]
             val trimmed = line.trim()
 
             if (trimmed.startsWith("```")) {
@@ -53,11 +56,26 @@ fun MarkdownRenderer(
                     // Start code block
                     inCodeBlock = true
                 }
+                lineIndex++
                 continue
             }
 
             if (inCodeBlock) {
                 codeBlockLines.add(line)
+                lineIndex++
+                continue
+            }
+
+            // Check if this line is part of a markdown table: | ... |
+            if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2) {
+                val tableLines = mutableListOf<String>()
+                while (lineIndex < lines.size && lines[lineIndex].trim().startsWith("|") && lines[lineIndex].trim().endsWith("|")) {
+                    tableLines.add(lines[lineIndex].trim())
+                    lineIndex++
+                }
+                if (tableLines.isNotEmpty()) {
+                    RenderMarkdownTable(tableLines, textColor, fontFamily)
+                }
                 continue
             }
 
@@ -177,6 +195,112 @@ fun MarkdownRenderer(
                         fontFamily = fontFamily,
                         color = textColor
                     )
+                }
+            }
+            lineIndex++
+        }
+    }
+}
+
+@Composable
+private fun RenderMarkdownTable(
+    tableLines: List<String>,
+    textColor: Color,
+    fontFamily: FontFamily
+) {
+    if (tableLines.isEmpty()) return
+
+    fun splitRow(line: String): List<String> {
+        val trimmed = line.removePrefix("|").removeSuffix("|")
+        return trimmed.split("|").map { it.trim() }
+    }
+
+    val firstRow = splitRow(tableLines[0])
+    val isSecondRowSeparator = tableLines.size > 1 && tableLines[1].replace(" ", "").removePrefix("|").removeSuffix("|").split("|").all { cell -> cell.all { it == '-' || it == ':' } }
+
+    val headers = firstRow
+    val dataRowStart = if (isSecondRowSeparator) 2 else 1
+    val rows = tableLines.drop(dataRowStart).map { splitRow(it) }
+
+    MarkdownTable(
+        headers = headers,
+        rows = rows,
+        textColor = textColor,
+        fontFamily = fontFamily
+    )
+}
+
+@Composable
+private fun MarkdownTable(
+    headers: List<String>,
+    rows: List<List<String>>,
+    textColor: Color,
+    fontFamily: FontFamily
+) {
+    val hScroll = rememberScrollState()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .horizontalScroll(hScroll)
+                .fillMaxWidth()
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
+                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                headers.forEach { header ->
+                    Text(
+                        text = parseInlineMarkdown(header, MaterialTheme.colorScheme.primary),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        fontFamily = fontFamily,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .widthIn(min = 100.dp, max = 240.dp)
+                            .padding(horizontal = 8.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+
+            // Data Rows
+            rows.forEachIndexed { rowIndex, row ->
+                val rowBg = if (rowIndex % 2 == 1) {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+                Row(
+                    modifier = Modifier
+                        .background(rowBg)
+                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    headers.indices.forEach { colIndex ->
+                        val cellText = if (colIndex < row.size) row[colIndex] else ""
+                        Text(
+                            text = parseInlineMarkdown(cellText, textColor),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = fontFamily,
+                            color = textColor,
+                            modifier = Modifier
+                                .widthIn(min = 100.dp, max = 240.dp)
+                                .padding(horizontal = 8.dp)
+                        )
+                    }
+                }
+                if (rowIndex < rows.size - 1) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), thickness = 0.5.dp)
                 }
             }
         }

@@ -44,6 +44,9 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_SMART_PUNCTUATION = booleanPreferencesKey("speech_smart_punctuation")
     private val KEY_NOISE_SUPPRESSION = booleanPreferencesKey("speech_noise_suppression")
     private val KEY_WORD_REPLACEMENTS = stringPreferencesKey("speech_word_replacements")
+    private val KEY_TIMESTAMPS_IN_LECTURE = booleanPreferencesKey("lecture_timestamps")
+    private val KEY_RECORD_AUDIO_TRACK = booleanPreferencesKey("lecture_record_audio_track")
+    private val KEY_ENABLE_BLUETOOTH_SCO = booleanPreferencesKey("lecture_bluetooth_sco")
 
     private val syncPrefs = context.getSharedPreferences("user_settings_sync", Context.MODE_PRIVATE)
 
@@ -278,6 +281,36 @@ class UserPreferencesManager(private val context: Context) {
     fun getMicSensitivitySync(): String = syncPrefs.getString("mic_sensitivity", "high") ?: "high"
     fun isSmartPunctuationSync(): Boolean = syncPrefs.getBoolean("speech_smart_punctuation", true)
     fun isNoiseSuppressionSync(): Boolean = syncPrefs.getBoolean("speech_noise_suppression", true)
+    fun isTimestampsInLectureSync(): Boolean = syncPrefs.getBoolean("lecture_timestamps", true)
+    fun isRecordAudioTrackSync(): Boolean = syncPrefs.getBoolean("lecture_record_audio_track", true)
+    fun isBluetoothScoEnabledSync(): Boolean = syncPrefs.getBoolean("lecture_bluetooth_sco", false)
+
+    val timestampsInLectureFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_TIMESTAMPS_IN_LECTURE] ?: syncPrefs.getBoolean("lecture_timestamps", true)
+    }
+
+    val recordAudioTrackFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_RECORD_AUDIO_TRACK] ?: syncPrefs.getBoolean("lecture_record_audio_track", true)
+    }
+
+    val enableBluetoothScoFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ENABLE_BLUETOOTH_SCO] ?: syncPrefs.getBoolean("lecture_bluetooth_sco", false)
+    }
+
+    suspend fun setTimestampsInLecture(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("lecture_timestamps", enabled).apply()
+        context.dataStore.edit { it[KEY_TIMESTAMPS_IN_LECTURE] = enabled }
+    }
+
+    suspend fun setRecordAudioTrack(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("lecture_record_audio_track", enabled).apply()
+        context.dataStore.edit { it[KEY_RECORD_AUDIO_TRACK] = enabled }
+    }
+
+    suspend fun setEnableBluetoothSco(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("lecture_bluetooth_sco", enabled).apply()
+        context.dataStore.edit { it[KEY_ENABLE_BLUETOOTH_SCO] = enabled }
+    }
 
     fun getWordReplacementsSync(): Map<String, String> {
         val json = syncPrefs.getString("speech_word_replacements", "{}") ?: "{}"

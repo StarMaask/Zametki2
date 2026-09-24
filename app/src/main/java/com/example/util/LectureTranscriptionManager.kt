@@ -49,10 +49,15 @@ class LectureTranscriptionManager(private val context: Context) {
     private val preferencesManager = UserPreferencesManager(context)
     private var speechRecognizer: SpeechRecognizer? = null
     private var onTextAppendedCallback: ((String) -> Unit)? = null
+    private var onAudioRecordedCallback: ((String) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var consecutiveErrors = 0
     private var lastPartialRaw = ""
     private var lastCommittedRaw = ""
+    private var currentNoteTitle = "Новая лекция"
+
+    private var audioRecorder: android.media.MediaRecorder? = null
+    private var audioOutputFile: java.io.File? = null
 
     // Sound muting state to silence the mic start/stop "beep/ding" audio signal
     private var wasMuted = false
@@ -61,6 +66,12 @@ class LectureTranscriptionManager(private val context: Context) {
         override fun run() {
             if (isRecording && !isPaused) {
                 durationSeconds++
+                com.example.service.LectureRecordingService.updateStatus(
+                    context,
+                    isPaused,
+                    formattedDuration(),
+                    currentNoteTitle
+                )
             }
             if (isRecording) {
                 mainHandler.postDelayed(this, 1000)
@@ -176,11 +187,17 @@ class LectureTranscriptionManager(private val context: Context) {
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 
-    fun startRecording(onTextAppended: (String) -> Unit): Boolean {
+    fun startRecording(
+        noteTitle: String = "Новая лекция",
+        onAudioRecorded: ((String) -> Unit)? = null,
+        onTextAppended: (String) -> Unit
+    ): Boolean {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             return false
         }
 
+        currentNoteTitle = noteTitle
+        onAudioRecordedCallback = onAudioRecorded
         onTextAppendedCallback = onTextAppended
         durationSeconds = 0L
         partialHypothesis = ""
@@ -189,6 +206,19 @@ class LectureTranscriptionManager(private val context: Context) {
         consecutiveErrors = 0
 
         muteSystemBeeps(true)
+
+        // Connect Foreground Service notification callbacks
+        com.example.service.LectureRecordingService.onServiceActionReceived = { action ->
+            when (action) {
+                com.example.service.LectureRecordingService.ACTION_TOGGLE_PAUSE -> togglePause()
+                com.example.service.LectureRecordingService.ACTION_STOP -> stopRecording()
+            }
+        }
+        com.example.service.LectureRecordingService.start(context, noteTitle)
+
+        if (preferencesManager.isRecordAudioTrackSync()) {
+            startParallelAudioRecorder()
+        }
 
         mainHandler.removeCallbacks(timerRunnable)
         mainHandler.postDelayed(timerRunnable, 1000)
@@ -205,10 +235,22 @@ class LectureTranscriptionManager(private val context: Context) {
             isListening = false
             cleanCancel()
             muteSystemBeeps(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                try { audioRecorder?.pause() } catch (_: Exception) {}
+            }
         } else {
             muteSystemBeeps(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                try { audioRecorder?.resume() } catch (_: Exception) {}
+            }
             safeStartListening()
         }
+        com.example.service.LectureRecordingService.updateStatus(
+            context,
+            isPaused,
+            formattedDuration(),
+            currentNoteTitle
+        )
     }
 
     fun stopRecording() {
@@ -224,11 +266,61 @@ class LectureTranscriptionManager(private val context: Context) {
         muteSystemBeeps(false)
 
         try {
+            audioRecorder?.stop()
+            audioRecorder?.release()
+        } catch (_: Exception) {}
+        audioRecorder = null
+
+        audioOutputFile?.let { file ->
+            if (file.exists() && file.length() > 0) {
+                onAudioRecordedCallback?.invoke(file.absolutePath)
+            }
+        }
+        audioOutputFile = null
+
+        com.example.service.LectureRecordingService.stop(context)
+
+        try {
             speechRecognizer?.stopListening()
             speechRecognizer?.cancel()
             speechRecognizer?.destroy()
         } catch (_: Exception) {}
         speechRecognizer = null
+    }
+
+    private fun startParallelAudioRecorder() {
+        try {
+            val audioDir = java.io.File(context.filesDir, "lecture_audio").apply { mkdirs() }
+            val file = java.io.File(audioDir, "lecture_${System.currentTimeMillis()}.m4a")
+            audioOutputFile = file
+
+            val audioSourceProfile = preferencesManager.getAudioSourceProfileSync()
+            val audioSource = when (audioSourceProfile) {
+                "CAMCORDER" -> android.media.MediaRecorder.AudioSource.CAMCORDER
+                "MIC" -> android.media.MediaRecorder.AudioSource.MIC
+                else -> android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION
+            }
+
+            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                android.media.MediaRecorder(context)
+            } else {
+                @Suppress("DEPRECATION")
+                android.media.MediaRecorder()
+            }.apply {
+                setAudioSource(audioSource)
+                setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128000)
+                setAudioSamplingRate(44100)
+                setOutputFile(file.absolutePath)
+                prepare()
+                start()
+            }
+            audioRecorder = recorder
+        } catch (_: Exception) {
+            audioOutputFile = null
+            audioRecorder = null
+        }
     }
 
     private fun cleanCancel() {
@@ -369,7 +461,14 @@ class LectureTranscriptionManager(private val context: Context) {
         } else {
             capitalized
         }
-        return withPunctuation
+
+        val includeTimestamps = preferencesManager.isTimestampsInLectureSync()
+        return if (includeTimestamps) {
+            val timestamp = formattedDuration()
+            "[$timestamp] $withPunctuation"
+        } else {
+            withPunctuation
+        }
     }
 
     fun formattedDuration(): String {

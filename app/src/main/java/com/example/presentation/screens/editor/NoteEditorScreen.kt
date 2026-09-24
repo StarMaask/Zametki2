@@ -72,6 +72,14 @@ import com.example.presentation.components.NoteTemplateDialog
 import com.example.presentation.components.PageFormatSelectorDialog
 import com.example.presentation.components.PinSetupDialog
 import com.example.presentation.components.PinVerifyDialog
+import com.example.presentation.components.PdfExportDialog
+import com.example.presentation.components.LectureSummaryDialog
+import com.example.presentation.components.TableOfContentsBottomSheet
+import com.example.presentation.components.FlashcardStudyDialog
+import com.example.presentation.components.MindMapDialog
+import com.example.presentation.components.MathSymbolBar
+import com.example.presentation.components.TableInsertDialog
+import com.example.presentation.components.OcrScanResultDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
 import com.example.presentation.components.VoiceSettingsDialog
@@ -102,6 +110,7 @@ fun NoteEditorScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
 
     var showColorPicker by remember { mutableStateOf(false) }
     var showAudioDialog by remember { mutableStateOf(false) }
@@ -116,6 +125,14 @@ fun NoteEditorScreen(
     var showTemplateDialog by remember { mutableStateOf(false) }
     var showPageFormatDialog by remember { mutableStateOf(false) }
     var showShareSheet by remember { mutableStateOf(false) }
+    var showPdfExportDialog by remember { mutableStateOf(false) }
+    var showLectureSummaryDialog by remember { mutableStateOf(false) }
+    var showTableOfContentsSheet by remember { mutableStateOf(false) }
+    var showFlashcardStudyDialog by remember { mutableStateOf(false) }
+    var showMindMapDialog by remember { mutableStateOf(false) }
+    var showMathSymbolBar by remember { mutableStateOf(false) }
+    var showTableInsertDialog by remember { mutableStateOf(false) }
+    var ocrTargetImageUri by remember { mutableStateOf<Uri?>(null) }
     var showFontDigitizerDialog by remember { mutableStateOf(false) }
     var showTextColorMenu by remember { mutableStateOf(false) }
     var showFontFamilyMenu by remember { mutableStateOf(false) }
@@ -189,12 +206,7 @@ fun NoteEditorScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            coroutineScope.launch {
-                Toast.makeText(context, "Распознавание текста с фото...", Toast.LENGTH_SHORT).show()
-                val extracted = com.example.util.HandwritingPhotoDigitizer.extractTextFromImage(context, uri)
-                appendRecognizedText(extracted)
-                Toast.makeText(context, "Текст с фото вставлен в заметку!", Toast.LENGTH_SHORT).show()
-            }
+            ocrTargetImageUri = uri
         }
     }
 
@@ -281,9 +293,17 @@ fun NoteEditorScreen(
             lectureManager.stopRecording()
         } else {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                val started = lectureManager.startRecording { chunk ->
-                    appendRecognizedText(chunk)
-                }
+                val title = state.title.ifBlank { "Новая лекция" }
+                val started = lectureManager.startRecording(
+                    noteTitle = title,
+                    onAudioRecorded = { audioPath ->
+                        viewModel.onAudioUriChange(audioPath)
+                        Toast.makeText(context, "Аудиодорожка лекции сохранена и прикреплена!", Toast.LENGTH_SHORT).show()
+                    },
+                    onTextAppended = { chunk ->
+                        appendRecognizedText(chunk)
+                    }
+                )
                 if (!started) {
                     startSpeechToText()
                 }
@@ -457,7 +477,22 @@ fun NoteEditorScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
 
-                    // 4. Overflow Menu
+                    // 4. Table of Contents & Lecture Outline
+                    TooltipIconButton(
+                        onClick = { showTableOfContentsSheet = true },
+                        icon = Icons.Filled.FormatListNumbered,
+                        tooltip = "Оглавление и навигация по лекции"
+                    )
+
+                    // 5. Smart Lecture Summary & Keypoints
+                    TooltipIconButton(
+                        onClick = { showLectureSummaryDialog = true },
+                        icon = Icons.Filled.Psychology,
+                        tooltip = "Умный конспект & Тезисы лекции",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+
+                    // 6. Overflow Menu
                     Box {
                         TooltipIconButton(
                             onClick = { showTopMenu = true },
@@ -468,6 +503,61 @@ fun NoteEditorScreen(
                             expanded = showTopMenu,
                             onDismissRequest = { showTopMenu = false }
                         ) {
+                            // Умный конспект
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Умный конспект & Тезисы")
+                                        Text("Резюме, глоссарий терминов, Д/З и контрольные вопросы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Psychology, null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showLectureSummaryDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Оглавление и разделы")
+                                        Text("Быстрый переход по заголовкам и таймкодам", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.FormatListNumbered, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showTableOfContentsSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Интервальные карточки")
+                                        Text("Режим активного запоминания понятий и вопросов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.School, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showFlashcardStudyDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Интеллект-карта понятий")
+                                        Text("Интерактивный граф связей тем и определений", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Hub, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showMindMapDialog = true
+                                }
+                            )
+                            HorizontalDivider()
+
                             // Озвучивание
                             DropdownMenuItem(
                                 text = {
@@ -655,14 +745,27 @@ fun NoteEditorScreen(
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("Экспорт в PDF")
-                                        Text("Создать документ с заголовком и датой", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Экспорт и печать PDF")
+                                        Text("Многостраничный A4, тетрадь, нумерация, фото", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 leadingIcon = { Icon(Icons.Filled.PictureAsPdf, null) },
                                 onClick = {
                                     showTopMenu = false
-                                    ShareExportUtil.shareAsPdf(context, state.toDomainNote())
+                                    showPdfExportDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Экспорт в Markdown (.md)")
+                                        Text("Для Obsidian, Notion, Typora и GitHub", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Code, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    ShareExportUtil.shareAsMarkdownFile(context, state.toDomainNote())
                                 }
                             )
                             DropdownMenuItem(
@@ -727,6 +830,17 @@ fun NoteEditorScreen(
                 color = MaterialTheme.colorScheme.surface
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // Панель математических формул и научных символов (активируется кнопкой ∑)
+                    if (showMathSymbolBar) {
+                        MathSymbolBar(
+                            onInsertSymbol = { symbol ->
+                                appendRecognizedText(symbol)
+                            },
+                            onClose = { showMathSymbolBar = false }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
+
                     // 1. Верхняя панель: Быстрое форматирование и начертание шрифтов
                     Row(
                         modifier = Modifier
@@ -1019,6 +1133,30 @@ fun NoteEditorScreen(
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Filled.FormatQuote, contentDescription = "Цитата", modifier = Modifier.size(18.dp))
+                        }
+
+                        // Математические символы и формулы (∑)
+                        FilledTonalIconButton(
+                            onClick = { showMathSymbolBar = !showMathSymbolBar },
+                            modifier = Modifier.size(36.dp),
+                            colors = if (showMathSymbolBar) {
+                                IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            } else {
+                                IconButtonDefaults.filledTonalIconButtonColors()
+                            }
+                        ) {
+                            Text("∑", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+
+                        // Вставка таблицы
+                        FilledTonalIconButton(
+                            onClick = { showTableInsertDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Filled.TableChart, contentDescription = "Вставить таблицу", modifier = Modifier.size(18.dp))
                         }
                     }
 
@@ -1383,8 +1521,6 @@ fun NoteEditorScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        val scrollState = rememberScrollState()
-        val coroutineScope = rememberCoroutineScope()
         val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
         Column(
@@ -1734,6 +1870,23 @@ fun NoteEditorScreen(
                                 ) {
                                     FilledTonalIconButton(
                                         onClick = {
+                                            val parsedUri = if (uri.startsWith("content://") || uri.startsWith("file://")) {
+                                                android.net.Uri.parse(uri)
+                                            } else {
+                                                android.net.Uri.fromFile(java.io.File(uri))
+                                            }
+                                            ocrTargetImageUri = parsedUri
+                                        },
+                                        modifier = Modifier.size(34.dp),
+                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                            containerColor = Color.Black.copy(alpha = 0.65f),
+                                            contentColor = Color(0xFF81D4FA)
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.DocumentScanner, contentDescription = "Распознать текст с этого фото (OCR)", modifier = Modifier.size(18.dp))
+                                    }
+                                    FilledTonalIconButton(
+                                        onClick = {
                                             digitizerInitialImageUri = uri
                                             showFontDigitizerDialog = true
                                         },
@@ -1776,7 +1929,11 @@ fun NoteEditorScreen(
             if (!state.audioUri.isNullOrBlank()) {
                 AudioPlaybackCard(
                     audioUri = state.audioUri!!,
-                    onDelete = { viewModel.onAudioUriChange(null) }
+                    noteContent = state.content,
+                    onDelete = { viewModel.onAudioUriChange(null) },
+                    onInsertTimestamp = { tag ->
+                        appendRecognizedText(tag)
+                    }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -2416,6 +2573,114 @@ fun NoteEditorScreen(
         ShareNoteBottomSheet(
             note = state.toDomainNote(),
             onDismissRequest = { showShareSheet = false }
+        )
+    }
+
+    if (showPdfExportDialog) {
+        PdfExportDialog(
+            note = state.toDomainNote(),
+            onDismissRequest = { showPdfExportDialog = false }
+        )
+    }
+
+    if (showLectureSummaryDialog) {
+        LectureSummaryDialog(
+            noteTitle = state.title,
+            noteContent = state.content,
+            onDismissRequest = { showLectureSummaryDialog = false },
+            onAppendMarkdownToNote = { md ->
+                val currentText = state.content
+                val separator = if (currentText.isNotBlank() && !currentText.endsWith("\n\n")) "\n\n" else ""
+                val newText = currentText + separator + md
+                contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                viewModel.onContentChange(newText)
+            },
+            onOpenFlashcards = { showFlashcardStudyDialog = true },
+            onOpenMindMap = { showMindMapDialog = true }
+        )
+    }
+
+    if (showFlashcardStudyDialog) {
+        FlashcardStudyDialog(
+            noteTitle = state.title,
+            noteContent = state.content,
+            onDismissRequest = { showFlashcardStudyDialog = false }
+        )
+    }
+
+    if (showMindMapDialog) {
+        MindMapDialog(
+            noteTitle = state.title,
+            noteContent = state.content,
+            onDismissRequest = { showMindMapDialog = false },
+            onNavigateToOffset = { offset ->
+                val safeOffset = offset.coerceIn(0, state.content.length)
+                contentTextFieldValue = TextFieldValue(state.content, TextRange(safeOffset))
+                coroutineScope.launch {
+                    val ratio = if (state.content.isNotEmpty()) safeOffset.toFloat() / state.content.length else 0f
+                    val targetScroll = (scrollState.maxValue * ratio).toInt()
+                    scrollState.animateScrollTo(targetScroll)
+                }
+            }
+        )
+    }
+
+    if (showTableInsertDialog) {
+        TableInsertDialog(
+            onDismissRequest = { showTableInsertDialog = false },
+            onInsertTable = { markdownTable ->
+                val currentText = state.content
+                val selection = contentTextFieldValue.selection
+                val start = selection.min.coerceIn(0, currentText.length)
+                val end = selection.max.coerceIn(0, currentText.length)
+                val prefix = if (start > 0 && !currentText.substring(0, start).endsWith("\n")) "\n\n" else "\n"
+                val suffix = "\n"
+                val newContent = currentText.substring(0, start) + prefix + markdownTable + suffix + currentText.substring(end)
+                val newCursor = start + prefix.length + markdownTable.length + suffix.length
+                contentTextFieldValue = TextFieldValue(newContent, TextRange(newCursor))
+                viewModel.onContentChange(newContent)
+            }
+        )
+    }
+
+    if (showTableOfContentsSheet) {
+        TableOfContentsBottomSheet(
+            content = state.content,
+            onDismissRequest = { showTableOfContentsSheet = false },
+            onSelectSection = { offset, _ ->
+                val safeOffset = offset.coerceIn(0, state.content.length)
+                contentTextFieldValue = TextFieldValue(state.content, TextRange(safeOffset))
+                coroutineScope.launch {
+                    val ratio = if (state.content.isNotEmpty()) safeOffset.toFloat() / state.content.length else 0f
+                    val targetScroll = (scrollState.maxValue * ratio).toInt()
+                    scrollState.animateScrollTo(targetScroll)
+                }
+            }
+        )
+    }
+
+    ocrTargetImageUri?.let { targetUri ->
+        OcrScanResultDialog(
+            imageUri = targetUri,
+            onDismissRequest = { ocrTargetImageUri = null },
+            onInsertText = { insertedText, insertAtCursor ->
+                if (insertAtCursor) {
+                    val currentText = contentTextFieldValue.text
+                    val selection = contentTextFieldValue.selection
+                    val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
+                    val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n" else ""
+                    val newText = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
+                    val newCursor = insertPos + separator.length + insertedText.length
+                    contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
+                    viewModel.onContentChange(newText)
+                } else {
+                    val currentText = state.content
+                    val separator = if (currentText.isNotBlank() && !currentText.endsWith("\n\n")) "\n\n" else ""
+                    val newText = currentText + separator + insertedText
+                    contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                    viewModel.onContentChange(newText)
+                }
+            }
         )
     }
 

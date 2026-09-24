@@ -70,6 +70,9 @@ fun AudioPerceptionSettingsDialog(
     val currentSensitivity by preferencesManager.micSensitivityFlow.collectAsState(initial = preferencesManager.getMicSensitivitySync())
     val isSmartPunctuation by preferencesManager.smartPunctuationFlow.collectAsState(initial = preferencesManager.isSmartPunctuationSync())
     val isNoiseSuppression by preferencesManager.noiseSuppressionFlow.collectAsState(initial = preferencesManager.isNoiseSuppressionSync())
+    val isTimestampsInLecture by preferencesManager.timestampsInLectureFlow.collectAsState(initial = preferencesManager.isTimestampsInLectureSync())
+    val isRecordAudioTrack by preferencesManager.recordAudioTrackFlow.collectAsState(initial = preferencesManager.isRecordAudioTrackSync())
+    val isBluetoothSco by preferencesManager.enableBluetoothScoFlow.collectAsState(initial = preferencesManager.isBluetoothScoEnabledSync())
     val wordReplacements by preferencesManager.wordReplacementsFlow.collectAsState(initial = preferencesManager.getWordReplacementsSync())
 
     // Vocabulary input states
@@ -468,6 +471,58 @@ fun AudioPerceptionSettingsDialog(
                                 Switch(
                                     checked = isSmartPunctuation,
                                     onCheckedChange = { scope.launch { preferencesManager.setSmartPunctuation(it) } }
+                                )
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                            Text(
+                                text = "Режим лекций и синхронизация",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Таймкоды лекции [MM:SS]", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text("Фиксировать время фраз для перехода к звуку по клику на метку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = isTimestampsInLecture,
+                                    onCheckedChange = { scope.launch { preferencesManager.setTimestampsInLecture(it) } }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Параллельная запись аудиодорожки (.m4a)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text("Сохранять чистый звук речи для плеера и переслушивания", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = isRecordAudioTrack,
+                                    onCheckedChange = { scope.launch { preferencesManager.setRecordAudioTrack(it) } }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Bluetooth-микрофоны и петлички (SCO)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text("Приоритет беспроводного микрофона для записи с расстояния", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = isBluetoothSco,
+                                    onCheckedChange = { scope.launch { preferencesManager.setEnableBluetoothSco(it) } }
                                 )
                             }
                         }

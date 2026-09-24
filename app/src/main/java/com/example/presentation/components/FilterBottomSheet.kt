@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.domain.model.PageFormat
 import com.example.presentation.screens.notes_list.SortOrder
 import com.example.ui.theme.NoteColors
 
@@ -30,6 +31,8 @@ fun FilterBottomSheet(
     selectedFolder: String?,
     onFolderSelected: (String?) -> Unit,
     availableFolders: List<String>,
+    selectedFormat: String? = null,
+    onFormatSelected: (String?) -> Unit = {},
     sortOrder: SortOrder,
     onSortOrderSelected: (SortOrder) -> Unit,
     onClearAllFilters: () -> Unit,
@@ -68,6 +71,27 @@ fun FilterBottomSheet(
                         selected = sortOrder == order,
                         onClick = { onSortOrderSelected(order) },
                         label = { Text(order.label) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = "Формат листа / Стиль тетради", style = MaterialTheme.typography.labelMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    FilterChip(
+                        selected = selectedFormat == null,
+                        onClick = { onFormatSelected(null) },
+                        label = { Text("Все стили") }
+                    )
+                }
+                items(PageFormat.values()) { format ->
+                    FilterChip(
+                        selected = selectedFormat == format.name,
+                        onClick = { onFormatSelected(if (selectedFormat == format.name) null else format.name) },
+                        label = { Text(format.title) }
                     )
                 }
             }
