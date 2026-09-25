@@ -20,11 +20,10 @@ import kotlin.math.max
 object GeminiOcrService {
 
     private val OCR_MODELS = listOf(
-        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash-lite",
         "gemini-3.8-flash",
-        "gemini-3.5-flash",
-        "gemini-2.5-flash-image",
-        "gemini-3.1-pro-preview"
+        "gemini-3.5-flash"
     )
 
     /**
@@ -49,7 +48,8 @@ object GeminiOcrService {
     }
 
     /**
-     * Verifies that the provided API key is valid and has active quota.
+     * Verifies that the provided API key is valid and has active access to Gemini models.
+     * Queries the Google Models API directly to authenticate the key without consuming generation quota or hitting 503 high-demand errors.
      */
     suspend fun testApiKey(apiKey: String): Result<String> = withContext(Dispatchers.IO) {
         val trimmedKey = apiKey.trim()
@@ -58,31 +58,14 @@ object GeminiOcrService {
         }
         var connection: HttpURLConnection? = null
         try {
-            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=$trimmedKey"
+            val urlString = "https://generativelanguage.googleapis.com/v1beta/models?key=$trimmedKey"
             val url = URL(urlString)
             connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
+                requestMethod = "GET"
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 connectTimeout = 12000
                 readTimeout = 15000
-                doOutput = true
                 doInput = true
-            }
-
-            val rootJson = JSONObject().apply {
-                val contents = JSONArray()
-                val contentObj = JSONObject()
-                val parts = JSONArray()
-                parts.put(JSONObject().apply { put("text", "Ответь одним словом: Готово") })
-                contentObj.put("parts", parts)
-                contents.put(contentObj)
-                put("contents", contents)
-            }
-
-            connection.outputStream.use { os ->
-                val inputBytes = rootJson.toString().toByteArray(Charsets.UTF_8)
-                os.write(inputBytes, 0, inputBytes.size)
-                os.flush()
             }
 
             val responseCode = connection.responseCode
@@ -391,9 +374,13 @@ object GeminiOcrService {
             val message = errObj?.optString("message")
             when {
                 responseCode == 400 && message?.contains("API_KEY_INVALID", ignoreCase = true) == true ->
-                    "Неверный API-ключ Gemini. Проверьте ключ в настройках."
+                    "Неверный API-ключ Gemini. Проверьте ключ и попробуйте снова."
+                responseCode == 403 ->
+                    "Доступ запрещен. Убедитесь, что для ключа включен доступ к Generative Language API."
                 responseCode == 429 || message?.contains("RESOURCE_EXHAUSTED", ignoreCase = true) == true ->
                     "Превышен лимит запросов к ИИ. Подождите немного или повторите попытку."
+                responseCode == 503 || message?.contains("high demand", ignoreCase = true) == true ->
+                    "Сервер Gemini временно перегружен запросами. Повторите попытку через минуту."
                 !message.isNullOrBlank() -> message
                 else -> "Ошибка сервера ИИ ($responseCode)"
             }
