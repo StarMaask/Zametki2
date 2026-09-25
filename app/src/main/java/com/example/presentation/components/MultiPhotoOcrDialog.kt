@@ -216,32 +216,44 @@ fun MultiPhotoOcrDialog(
         }
     }
 
+    var customMergedText by remember { mutableStateOf<String?>(null) }
+
+    // When items or merge format change, reset customMergedText if not edited
+    val activeMergedText = customMergedText ?: mergedText
+
+    fun getActiveText(): String {
+        return when (selectedTab) {
+            2 -> structuredText.ifEmpty { activeMergedText }
+            else -> activeMergedText
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 6.dp)
                 .imePadding()
-                .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
             Card(
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // 1. TOP HEADER (COMPACT)
+                    // 1. TOP HEADER (COMPACT WITH DIRECT SAVE BUTTON)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -263,32 +275,51 @@ fun MultiPhotoOcrDialog(
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "Пакетное сканирование фото",
+                                    text = "Пакетный скан фото",
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                     maxLines = 1
                                 )
                                 Text(
-                                    text = "Распознано $completedCount из $totalCount страниц",
+                                    text = "Готово $completedCount из $totalCount",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            // Direct prominent Save button in top bar (matches Note Editor style)
+                            Button(
+                                onClick = {
+                                    onInsertText(getActiveText(), true, true)
+                                    onDismissRequest()
+                                },
+                                enabled = completedCount > 0,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Сохранить", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
                             FilledTonalButton(
                                 onClick = { showApiKeyDialog = true },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(30.dp)
+                                modifier = Modifier.height(32.dp)
                             ) {
-                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Ключ API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text("Ключ", fontSize = 11.sp)
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
+
                             IconButton(
                                 onClick = onDismissRequest,
                                 modifier = Modifier.size(32.dp)
@@ -590,8 +621,8 @@ fun MultiPhotoOcrDialog(
                                     Spacer(modifier = Modifier.height(6.dp))
 
                                     OutlinedTextField(
-                                        value = mergedText,
-                                        onValueChange = {},
+                                        value = activeMergedText,
+                                        onValueChange = { customMergedText = it },
                                         readOnly = false,
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -673,7 +704,7 @@ fun MultiPhotoOcrDialog(
                                     Spacer(modifier = Modifier.height(6.dp))
 
                                     OutlinedTextField(
-                                        value = structuredText.ifEmpty { mergedText },
+                                        value = structuredText.ifEmpty { activeMergedText },
                                         onValueChange = { structuredText = it },
                                         label = { Text(if (structuredText.isNotBlank()) "Готовый ИИ-конспект" else "Исходный объединенный текст", fontSize = 11.sp) },
                                         modifier = Modifier
@@ -689,8 +720,8 @@ fun MultiPhotoOcrDialog(
                     // 5. BOTTOM ACTION BAR (ALWAYS DOCKED & VISIBLE)
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        tonalElevation = 4.dp
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        tonalElevation = 6.dp
                     ) {
                         Row(
                             modifier = Modifier
@@ -701,10 +732,7 @@ fun MultiPhotoOcrDialog(
                         ) {
                             OutlinedButton(
                                 onClick = {
-                                    val textToCopy = when (selectedTab) {
-                                        2 -> structuredText.ifEmpty { mergedText }
-                                        else -> mergedText
-                                    }
+                                    val textToCopy = getActiveText()
                                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     cm.setPrimaryClip(ClipData.newPlainText("Recognized Notes", textToCopy))
                                     Toast.makeText(context, "Текст скопирован в буфер", Toast.LENGTH_SHORT).show()
@@ -719,10 +747,7 @@ fun MultiPhotoOcrDialog(
 
                             OutlinedButton(
                                 onClick = {
-                                    val textToInsert = when (selectedTab) {
-                                        2 -> structuredText.ifEmpty { mergedText }
-                                        else -> mergedText
-                                    }
+                                    val textToInsert = getActiveText()
                                     onInsertText(textToInsert, true, false)
                                     onDismissRequest()
                                 },
@@ -737,10 +762,7 @@ fun MultiPhotoOcrDialog(
 
                             Button(
                                 onClick = {
-                                    val textToInsert = when (selectedTab) {
-                                        2 -> structuredText.ifEmpty { mergedText }
-                                        else -> mergedText
-                                    }
+                                    val textToInsert = getActiveText()
                                     onInsertText(textToInsert, true, true)
                                     onDismissRequest()
                                 },

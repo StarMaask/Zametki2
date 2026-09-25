@@ -118,30 +118,29 @@ fun OcrScanResultDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .imePadding(),
             contentAlignment = Alignment.Center
         ) {
             Card(
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // 1. TOP HEADER (COMPACT)
+                    // 1. TOP HEADER (COMPACT WITH DIRECT SAVE BUTTON)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -163,33 +162,52 @@ fun OcrScanResultDialog(
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "Распознавание текста с фото",
+                                    text = "Скан текста с фото",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1
                                 )
                                 Text(
-                                    text = if (selectedMode == OcrMode.GEMINI_AI) "Режим: ✨ ИИ Gemini" else "Режим: ⚡ На устройстве (офлайн)",
+                                    text = if (selectedMode == OcrMode.GEMINI_AI) "Режим: ✨ ИИ Gemini" else "Режим: ⚡ Офлайн",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (selectedMode == OcrMode.GEMINI_AI) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                                 )
                             }
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            // Direct prominent Save button in top bar (matches Note Editor style)
+                            Button(
+                                onClick = {
+                                    onInsertText(recognizedText, true, true)
+                                    onDismissRequest()
+                                },
+                                enabled = !isLoading && recognizedText.isNotBlank(),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Сохранить", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
                             FilledTonalButton(
                                 onClick = { showApiKeyDialog = true },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(30.dp)
+                                modifier = Modifier.height(32.dp)
                             ) {
-                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Ключ API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text("Ключ", fontSize = 11.sp)
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
+
                             IconButton(
                                 onClick = onDismissRequest,
                                 modifier = Modifier.size(32.dp)
