@@ -62,9 +62,7 @@ fun OcrScanResultDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showImagePreview by remember { mutableStateOf(false) }
 
-    var showApiKeyInput by remember { mutableStateOf(false) }
-    var apiKeyInput by remember { mutableStateOf("") }
-    var isApiKeyVisible by remember { mutableStateOf(false) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
 
     // Function to run OCR based on active mode
     fun runRecognition(mode: OcrMode, customKey: String? = null) {
@@ -181,11 +179,23 @@ fun OcrScanResultDialog(
                             }
                         }
 
-                        IconButton(
-                            onClick = onDismissRequest,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Закрыть", modifier = Modifier.size(20.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(
+                                onClick = { showApiKeyDialog = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Ключ API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            IconButton(
+                                onClick = onDismissRequest,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Закрыть", modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
 
@@ -197,7 +207,10 @@ fun OcrScanResultDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             FilterChip(
                                 selected = selectedMode == OcrMode.GEMINI_AI,
                                 onClick = {
@@ -217,6 +230,16 @@ fun OcrScanResultDialog(
                                 label = { Text("⚡ На устройстве", fontSize = 11.sp) },
                                 modifier = Modifier.height(32.dp)
                             )
+
+                            OutlinedButton(
+                                onClick = { showApiKeyDialog = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Ключ", fontSize = 11.sp)
+                            }
                         }
 
                         // Toggle preview button
@@ -262,69 +285,6 @@ fun OcrScanResultDialog(
                         }
                     }
 
-                    // API Key input banner if opened
-                    AnimatedVisibility(visible = showApiKeyInput) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "Настройка ключа Gemini API:",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                OutlinedTextField(
-                                    value = apiKeyInput,
-                                    onValueChange = { apiKeyInput = it },
-                                    placeholder = { Text("Вставьте Gemini API ключ...", fontSize = 11.sp) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                                    trailingIcon = {
-                                        IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
-                                            Icon(
-                                                if (isApiKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    },
-                                    textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    TextButton(onClick = { showApiKeyInput = false }) {
-                                        Text("Отмена", fontSize = 11.sp)
-                                    }
-                                    Button(
-                                        onClick = {
-                                            if (apiKeyInput.isNotBlank()) {
-                                                coroutineScope.launch {
-                                                    prefs.setGeminiApiKey(apiKeyInput.trim())
-                                                    showApiKeyInput = false
-                                                    runRecognition(OcrMode.GEMINI_AI, apiKeyInput.trim())
-                                                }
-                                            } else {
-                                                Toast.makeText(context, "Введите ключ", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("Сохранить и запустить", fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     // Error banner with retry / switch options
                     if (errorMessage != null) {
                         Surface(
@@ -356,10 +316,10 @@ fun OcrScanResultDialog(
                                     horizontalArrangement = Arrangement.End
                                 ) {
                                     TextButton(
-                                        onClick = { showApiKeyInput = true },
+                                        onClick = { showApiKeyDialog = true },
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                        Text("Сменить ключ API", fontSize = 10.sp)
+                                        Text("🔑 Ввести ключ API", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                     TextButton(
                                         onClick = {
@@ -543,5 +503,16 @@ fun OcrScanResultDialog(
                 }
             }
         }
+    }
+
+    if (showApiKeyDialog) {
+        GeminiApiKeyDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            onKeySaved = { newKey ->
+                showApiKeyDialog = false
+                selectedMode = OcrMode.GEMINI_AI
+                runRecognition(OcrMode.GEMINI_AI, newKey)
+            }
+        )
     }
 }

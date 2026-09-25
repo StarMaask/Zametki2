@@ -83,6 +83,7 @@ import com.example.presentation.components.TableInsertDialog
 import com.example.presentation.components.OcrScanResultDialog
 import com.example.presentation.components.MultiPhotoOcrDialog
 import com.example.presentation.components.DocumentInsertDialog
+import com.example.presentation.components.GeminiApiKeyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
 import com.example.presentation.components.VoiceSettingsDialog
@@ -136,6 +137,7 @@ fun NoteEditorScreen(
     var showFocusTimerDialog by remember { mutableStateOf(false) }
     var showMathSymbolBar by remember { mutableStateOf(false) }
     var showTableInsertDialog by remember { mutableStateOf(false) }
+    var showGeminiKeyDialog by remember { mutableStateOf(false) }
     var ocrTargetImageUri by remember { mutableStateOf<Uri?>(null) }
     var multiOcrTargetUris by remember { mutableStateOf<List<Uri>?>(null) }
     var targetDocumentUri by remember { mutableStateOf<Uri?>(null) }
@@ -838,6 +840,20 @@ fun NoteEditorScreen(
                                 onClick = {
                                     showTopMenu = false
                                     viewModel.toggleArchive { onBack() }
+                                }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Ключ Gemini API", fontWeight = FontWeight.SemiBold)
+                                        Text("Настройка ключа для распознавания текста с фото", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Key, null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showGeminiKeyDialog = true
                                 }
                             )
                             HorizontalDivider()
@@ -2639,6 +2655,15 @@ fun NoteEditorScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showFolderDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    if (showGeminiKeyDialog) {
+        GeminiApiKeyDialog(
+            onDismissRequest = { showGeminiKeyDialog = false },
+            onKeySaved = {
+                showGeminiKeyDialog = false
             }
         )
     }

@@ -85,6 +85,7 @@ fun MultiPhotoOcrDialog(
     var isStructuring by remember { mutableStateOf(false) }
     var structureMode by remember { mutableStateOf(GeminiOcrService.TextStructureMode.STRUCTURED_NOTES) }
     var structureError by remember { mutableStateOf<String?>(null) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
 
     // Launcher to add more photos
     val addPhotosLauncher = rememberLauncherForActivityResult(
@@ -277,11 +278,23 @@ fun MultiPhotoOcrDialog(
                             }
                         }
 
-                        IconButton(
-                            onClick = onDismissRequest,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Закрыть", modifier = Modifier.size(20.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(
+                                onClick = { showApiKeyDialog = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Ключ API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            IconButton(
+                                onClick = onDismissRequest,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Закрыть", modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
 
@@ -294,7 +307,7 @@ fun MultiPhotoOcrDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             FilterChip(
@@ -316,6 +329,16 @@ fun MultiPhotoOcrDialog(
                                 label = { Text("⚡ Офлайн (ML Kit)", fontSize = 11.sp) },
                                 modifier = Modifier.height(32.dp)
                             )
+
+                            OutlinedButton(
+                                onClick = { showApiKeyDialog = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Ключ", fontSize = 11.sp)
+                            }
                         }
 
                         FilledTonalButton(
@@ -737,5 +760,16 @@ fun MultiPhotoOcrDialog(
                 }
             }
         }
+    }
+
+    if (showApiKeyDialog) {
+        GeminiApiKeyDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            onKeySaved = { _ ->
+                showApiKeyDialog = false
+                selectedMode = OcrMode.GEMINI_AI
+                items = items.map { it.copy(status = PageOcrStatus.PENDING) }
+            }
+        )
     }
 }
