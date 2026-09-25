@@ -81,6 +81,8 @@ import com.example.presentation.components.StudyFocusTimerDialog
 import com.example.presentation.components.MathSymbolBar
 import com.example.presentation.components.TableInsertDialog
 import com.example.presentation.components.OcrScanResultDialog
+import com.example.presentation.components.MultiPhotoOcrDialog
+import com.example.presentation.components.DocumentInsertDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
 import com.example.presentation.components.VoiceSettingsDialog
@@ -135,6 +137,8 @@ fun NoteEditorScreen(
     var showMathSymbolBar by remember { mutableStateOf(false) }
     var showTableInsertDialog by remember { mutableStateOf(false) }
     var ocrTargetImageUri by remember { mutableStateOf<Uri?>(null) }
+    var multiOcrTargetUris by remember { mutableStateOf<List<Uri>?>(null) }
+    var targetDocumentUri by remember { mutableStateOf<Uri?>(null) }
     var showFontDigitizerDialog by remember { mutableStateOf(false) }
     var showTextColorMenu by remember { mutableStateOf(false) }
     var showFontFamilyMenu by remember { mutableStateOf(false) }
@@ -209,6 +213,26 @@ fun NoteEditorScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             ocrTargetImageUri = uri
+        }
+    }
+
+    val multiOcrImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            if (uris.size == 1) {
+                ocrTargetImageUri = uris.first()
+            } else {
+                multiOcrTargetUris = uris
+            }
+        }
+    }
+
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            targetDocumentUri = uri
         }
     }
 
@@ -1270,11 +1294,43 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Распознать текст с фото (OCR)")
-                                            Text("Извлечь рукописный или печатный текст в заметку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Множественное фото в текст", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Серия страниц: распознать, объединить или структурировать через ИИ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.DocumentScanner, null, tint = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = { Icon(Icons.Filled.CollectionsBookmark, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        multiOcrImagePickerLauncher.launch("image/*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Вставить документ (PDF, Word, TXT)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Извлечь текст из PDF, DOCX или прикрепить файл", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Description, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        documentPickerLauncher.launch(arrayOf(
+                                            "application/pdf",
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            "application/msword",
+                                            "text/*",
+                                            "*/*"
+                                        ))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Одиночное фото (OCR)")
+                                            Text("Извлечь рукописный или печатный текст с одного фото", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.DocumentScanner, null) },
                                     onClick = {
                                         showInsertMenu = false
                                         ocrImagePickerLauncher.launch("image/*")
@@ -1312,6 +1368,30 @@ fun NoteEditorScreen(
                                 )
                             }
                         }
+
+                        // МНОЖЕСТВЕННОЕ ФОТО В ТЕКСТ (Серия страниц)
+                        TooltipIconButton(
+                            onClick = { multiOcrImagePickerLauncher.launch("image/*") },
+                            icon = Icons.Filled.CollectionsBookmark,
+                            tooltip = "Множественное фото в текст (серия страниц)",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+
+                        // ВСТАВКА ДОКУМЕНТА (PDF, Word, TXT)
+                        TooltipIconButton(
+                            onClick = {
+                                documentPickerLauncher.launch(arrayOf(
+                                    "application/pdf",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/msword",
+                                    "text/*",
+                                    "*/*"
+                                ))
+                            },
+                            icon = Icons.Filled.Description,
+                            tooltip = "Вставить документ (PDF, DOCX, TXT)",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
                         // 2. ФОРМАТИРОВАНИЕ (Formatting Dropdown Menu)
                         Box {
@@ -2693,6 +2773,56 @@ fun NoteEditorScreen(
                     val selection = contentTextFieldValue.selection
                     val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
                     val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n" else ""
+                    val newText = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
+                    val newCursor = insertPos + separator.length + insertedText.length
+                    contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
+                    viewModel.onContentChange(newText)
+                } else {
+                    val currentText = state.content
+                    val separator = if (currentText.isNotBlank() && !currentText.endsWith("\n\n")) "\n\n" else ""
+                    val newText = currentText + separator + insertedText
+                    contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                    viewModel.onContentChange(newText)
+                }
+            }
+        )
+    }
+
+    multiOcrTargetUris?.let { targetUris ->
+        MultiPhotoOcrDialog(
+            initialImageUris = targetUris,
+            onDismissRequest = { multiOcrTargetUris = null },
+            onInsertText = { insertedText, insertAtCursor ->
+                if (insertAtCursor) {
+                    val currentText = contentTextFieldValue.text
+                    val selection = contentTextFieldValue.selection
+                    val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
+                    val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n\n" else ""
+                    val newText = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
+                    val newCursor = insertPos + separator.length + insertedText.length
+                    contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
+                    viewModel.onContentChange(newText)
+                } else {
+                    val currentText = state.content
+                    val separator = if (currentText.isNotBlank() && !currentText.endsWith("\n\n")) "\n\n" else ""
+                    val newText = currentText + separator + insertedText
+                    contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                    viewModel.onContentChange(newText)
+                }
+            }
+        )
+    }
+
+    targetDocumentUri?.let { docUri ->
+        DocumentInsertDialog(
+            documentUri = docUri,
+            onDismissRequest = { targetDocumentUri = null },
+            onInsertText = { insertedText, insertAtCursor ->
+                if (insertAtCursor) {
+                    val currentText = contentTextFieldValue.text
+                    val selection = contentTextFieldValue.selection
+                    val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
+                    val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n\n" else ""
                     val newText = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
                     val newCursor = insertPos + separator.length + insertedText.length
                     contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))

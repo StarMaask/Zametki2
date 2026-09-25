@@ -95,6 +95,29 @@ object GeminiOcrService {
         }
     }
 
+    enum class TextStructureMode(val title: String, val subtitle: String, val promptInstruction: String) {
+        STRUCTURED_NOTES(
+            "Структурированный конспект",
+            "Единый конспект с разделами, тезисами и выводами",
+            "Объедини материалы со всех страниц в единый, грамотный и логически выверенный конспект на русском языке. Устрани переносы слов между страницами, повторы заголовков и артефакты сканирования. Выдели ключевые понятия, списки, формулы/определения и основные выводы."
+        ),
+        SUMMARY(
+            "Краткое саммари",
+            "Суть и ключевые факты со всех страниц",
+            "Составь краткое и ёмкое резюме (саммари) по материалам всех страниц. Выдели главную суть, факты, цифры и ключевые результаты."
+        ),
+        CLEAN_MERGE(
+            "Очищенный сплошной текст",
+            "Исправление опечаток, пунктуации и склейка",
+            "Объедини тексты всех страниц в один связный, грамотный текст. Исправь распознанные опечатки, восстанови разорванные на границах страниц слова и предложения, сохрани авторский смысл."
+        ),
+        ACTION_PLAN(
+            "Задачи и план действий",
+            "Извлечение поручений, дат и контрольных точек",
+            "Проанализируй текст всех страниц и составь четкий план действий: задачи, дедлайны, важные даты и контрольные пункты в формате чек-листа."
+        )
+    }
+
     /**
      * Performs ultra-accurate Russian/multilingual OCR using Gemini Vision.
      */
@@ -142,6 +165,109 @@ object GeminiOcrService {
         }
 
         return@withContext primaryResult
+    }
+
+    /**
+     * Structures, cleans and synthesizes multiple page texts into a unified document using Gemini AI.
+     */
+    suspend fun structureBatchTexts(
+        context: Context,
+        pageTexts: List<String>,
+        mode: TextStructureMode,
+        customApiKey: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val apiKey = customApiKey?.trim()?.takeIf { it.isNotBlank() }
+            ?: getEffectiveApiKey(context)
+
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(
+                IllegalStateException("API-ключ Gemini не найден. Укажите бесплатный ключ в настройках приложения.")
+            )
+        }
+
+        val filteredPages = pageTexts.filter { it.isNotBlank() }
+        if (filteredPages.isEmpty()) {
+            return@withContext Result.failure(IllegalStateException("Список текстов пуст."))
+        }
+
+        val joinedPages = filteredPages.mapIndexed { index, text ->
+            "=== Страница ${index + 1} ===\n$text"
+        }.joinToString("\n\n")
+
+        val prompt = "Ты — профессиональный редактор и составитель конспектов на русском языке.\n" +
+                "${mode.promptInstruction}\n" +
+                "Правила:\n" +
+                "1. Отвечай исключительно на грамотном русском языке без лишних латинских знаков и опечаток.\n" +
+                "2. Форматируй красиво: используй понятные заголовки, списки, абзацы.\n" +
+                "3. Не добавляй никаких мета-комментариев («Вот ваш результат:» и т.п.) — сразу выдавай текст конспекта.\n\n" +
+                "Вот исходные материалы страниц:\n\n$joinedPages"
+
+        val primaryResult = executeGeminiTextRequest(MODEL_PRIMARY, apiKey, prompt)
+        if (primaryResult.isSuccess) return@withContext primaryResult
+
+        val fallbackResult = executeGeminiTextRequest(MODEL_FALLBACK, apiKey, prompt)
+        if (fallbackResult.isSuccess) return@withContext fallbackResult
+
+        return@withContext primaryResult
+    }
+
+    private fun executeGeminiTextRequest(
+        modelName: String,
+        apiKey: String,
+        prompt: String
+    ): Result<String> {
+        var connection: HttpURLConnection? = null
+        return try {
+            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+            val url = URL(urlString)
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connectTimeout = 30000
+                readTimeout = 40000
+                doOutput = true
+                doInput = true
+            }
+
+            val rootJson = JSONObject().apply {
+                val contents = JSONArray()
+                val contentObj = JSONObject()
+                val parts = JSONArray()
+                parts.put(JSONObject().apply { put("text", prompt) })
+                contentObj.put("parts", parts)
+                contents.put(contentObj)
+                put("contents", contents)
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.2)
+                })
+            }
+
+            connection.outputStream.use { os ->
+                val inputBytes = rootJson.toString().toByteArray(Charsets.UTF_8)
+                os.write(inputBytes, 0, inputBytes.size)
+                os.flush()
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode in 200..299) {
+                val responseText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val parsedText = extractTextFromResponse(responseText)
+                if (parsedText.isNotBlank()) {
+                    Result.success(parsedText)
+                } else {
+                    Result.failure(Exception("ИИ вернул пустой ответ."))
+                }
+            } else {
+                val errorBody = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                val errorMessage = parseErrorMessage(errorBody, responseCode)
+                Result.failure(Exception(errorMessage))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(Exception("Ошибка соединения с ИИ: ${e.localizedMessage ?: "проверьте подключение к сети"}"))
+        } finally {
+            connection?.disconnect()
+        }
     }
 
     private fun executeGeminiRequest(
