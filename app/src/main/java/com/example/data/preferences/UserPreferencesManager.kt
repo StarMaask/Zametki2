@@ -3,11 +3,14 @@ package com.example.data.preferences
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.ui.theme.AppThemePreset
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 enum class FontSizeScale(val title: String, val scale: Float) {
     SMALL("Компактный", 0.85f),
@@ -397,17 +400,31 @@ class UserPreferencesManager(private val context: Context) {
         setWordReplacements(current)
     }
 
-    val geminiApiKeyFlow: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[KEY_GEMINI_API_KEY] ?: syncPrefs.getString("gemini_api_key", "") ?: ""
-    }
+    val geminiApiKeyFlow: Flow<String> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { prefs ->
+            prefs[KEY_GEMINI_API_KEY] ?: syncPrefs.getString("gemini_api_key", "") ?: ""
+        }
 
     fun getGeminiApiKeySync(): String {
         return syncPrefs.getString("gemini_api_key", "") ?: ""
     }
 
     suspend fun setGeminiApiKey(key: String) {
-        syncPrefs.edit().putString("gemini_api_key", key.trim()).apply()
-        context.dataStore.edit { it[KEY_GEMINI_API_KEY] = key.trim() }
+        val trimmed = key.trim()
+        syncPrefs.edit().putString("gemini_api_key", trimmed).apply()
+        context.dataStore.edit { it[KEY_GEMINI_API_KEY] = trimmed }
+    }
+
+    suspend fun clearGeminiApiKey() {
+        syncPrefs.edit().remove("gemini_api_key").apply()
+        context.dataStore.edit { it.remove(KEY_GEMINI_API_KEY) }
     }
 
     fun setGeminiApiKeySync(key: String) {

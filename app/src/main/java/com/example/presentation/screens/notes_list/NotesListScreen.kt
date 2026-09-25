@@ -327,7 +327,7 @@ fun NotesListScreen(
                                     text = {
                                         Column {
                                             Text("Настройки")
-                                            Text("PIN-код, темы, бэкап", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Gemini API, PIN-код, темы, бэкап", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.Settings, null) },

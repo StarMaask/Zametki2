@@ -16,9 +16,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.BuildConfig
 import com.example.data.preferences.FontSizeScale
 import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.Note
@@ -27,6 +32,7 @@ import com.example.presentation.components.AudioPerceptionSettingsDialog
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.AppThemePreset
 import com.example.util.BiometricAuthUtil
+import com.example.util.GeminiOcrService
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -42,6 +48,8 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val clipboardManager = LocalClipboardManager.current
+
     val currentTheme by preferencesManager.themeFlow.collectAsState(initial = AppThemePreset.PURITY)
     val currentFontSize by preferencesManager.fontSizeFlow.collectAsState(initial = FontSizeScale.NORMAL)
     val isPinEnabled by preferencesManager.isPinEnabledFlow.collectAsState(initial = false)
@@ -54,10 +62,19 @@ fun SettingsScreen(
     var importJsonInput by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf<String?>(null) }
     var showAudioPerceptionDialog by remember { mutableStateOf(false) }
-    var showGeminiKeyDialog by remember { mutableStateOf(false) }
+
+    val geminiApiKeyFromStore by preferencesManager.geminiApiKeyFlow.collectAsState(initial = "")
     var geminiKeyInput by remember { mutableStateOf("") }
-    val geminiApiKey by preferencesManager.geminiApiKeyFlow.collectAsState(initial = "")
+    var isKeyVisible by remember { mutableStateOf(false) }
+    var isTestingKey by remember { mutableStateOf(false) }
+    var testResultStatus by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     val ocrPreferAi by preferencesManager.ocrPreferAiFlow.collectAsState(initial = true)
+
+    LaunchedEffect(geminiApiKeyFromStore) {
+        if (geminiKeyInput.isEmpty() && geminiApiKeyFromStore.isNotEmpty()) {
+            geminiKeyInput = geminiApiKeyFromStore
+        }
+    }
 
     val jsonConfig = Json {
         ignoreUnknownKeys = true
@@ -312,79 +329,332 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
 
-            // AI & OCR TEXT RECOGNITION SECTION
-            Text(
-                text = "Распознавание текста с фото (OCR & ИИ)",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-            )
-            Text(
-                text = "Настройка распознавания русского текста с фотографий и досок:",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            // AI & GEMINI API SECTION (DATASTORE)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Gemini API & ИИ (DataStore)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = "Хранилище ключа: локальный DataStore приложения",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (geminiApiKeyFromStore.isNotBlank()) {
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("В DataStore", style = MaterialTheme.typography.labelSmall) },
+                        icon = {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                } else if (BuildConfig.GEMINI_API_KEY.isNotBlank() && BuildConfig.GEMINI_API_KEY != "null" && BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY") {
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("BuildConfig", style = MaterialTheme.typography.labelSmall) },
+                        icon = {
+                            Icon(
+                                Icons.Filled.Info,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+                    )
+                } else {
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("Не настроен", style = MaterialTheme.typography.labelSmall) },
+                        icon = {
+                            Icon(
+                                Icons.Filled.Warning,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             OutlinedCard(
-                onClick = {
-                    geminiKeyInput = preferencesManager.getGeminiApiKeySync()
-                    showGeminiKeyDialog = true
-                },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                )
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primaryContainer),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.AutoAwesome,
+                                imageVector = Icons.Filled.Key,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Gemini API ключ",
-                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                                text = "Обновление GEMINI_API_KEY",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = if (geminiApiKey.isNotBlank() || com.example.BuildConfig.GEMINI_API_KEY.isNotBlank())
-                                    "Ключ подключен (сверхточное распознавание)"
-                                else
-                                    "Не указан (нажмите для добавления)",
+                                text = "Используется для точного распознавания текста (OCR) и ИИ",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (geminiApiKey.isNotBlank() || com.example.BuildConfig.GEMINI_API_KEY.isNotBlank())
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                    Icon(
-                        imageVector = Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outline
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    OutlinedTextField(
+                        value = geminiKeyInput,
+                        onValueChange = {
+                            geminiKeyInput = it
+                            testResultStatus = null
+                        },
+                        label = { Text("GEMINI_API_KEY") },
+                        placeholder = { Text("AIzaSy...") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("gemini_api_key_input"),
+                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.VpnKey,
+                                contentDescription = null,
+                                tint = if (geminiKeyInput.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (geminiKeyInput.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            geminiKeyInput = ""
+                                            testResultStatus = null
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Clear,
+                                            contentDescription = "Очистить поле ввода",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val clipText = clipboardManager.getText()?.text
+                                        if (!clipText.isNullOrBlank()) {
+                                            geminiKeyInput = clipText.trim()
+                                            testResultStatus = null
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Ключ вставлен из буфера обмена")
+                                            }
+                                        } else {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Буфер обмена пуст")
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.ContentPaste,
+                                        contentDescription = "Вставить из буфера",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { isKeyVisible = !isKeyVisible },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        if (isKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = if (isKeyVisible) "Скрыть ключ" else "Показать ключ",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                        },
+                        supportingText = {
+                            val isUnsaved = geminiKeyInput.trim() != geminiApiKeyFromStore
+                            if (isUnsaved) {
+                                Text(
+                                    "Есть несохраненные изменения — нажмите «Сохранить в DataStore»",
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            } else if (geminiApiKeyFromStore.isNotBlank()) {
+                                Text(
+                                    "Ключ сохранен в DataStore и активен",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            } else {
+                                Text(
+                                    "Ключ будет записан в Preferences DataStore",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    val trimmed = geminiKeyInput.trim()
+                                    preferencesManager.setGeminiApiKey(trimmed)
+                                    testResultStatus = null
+                                    snackbarHostState.showSnackbar("GEMINI_API_KEY успешно сохранен в DataStore")
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .testTag("save_gemini_key_button")
+                        ) {
+                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Сохранить в DataStore")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val keyToTest = geminiKeyInput.trim().ifEmpty {
+                                    preferencesManager.getGeminiApiKeySync()
+                                }.ifEmpty {
+                                    BuildConfig.GEMINI_API_KEY.trim()
+                                }
+                                if (keyToTest.isBlank()) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Сначала введите или сохраните ключ")
+                                    }
+                                    return@OutlinedButton
+                                }
+                                isTestingKey = true
+                                testResultStatus = null
+                                scope.launch {
+                                    val result = GeminiOcrService.testApiKey(keyToTest)
+                                    isTestingKey = false
+                                    if (result.isSuccess) {
+                                        testResultStatus = Pair(true, result.getOrNull() ?: "Ключ действителен")
+                                    } else {
+                                        val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка проверки"
+                                        testResultStatus = Pair(false, err)
+                                    }
+                                }
+                            },
+                            enabled = !isTestingKey,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (isTestingKey) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Проверить")
+                            }
+                        }
+                    }
+
+                    testResultStatus?.let { (success, message) ->
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (success) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (success) Icons.Filled.CheckCircle else Icons.Filled.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = if (success) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (success) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+
+                    if (geminiApiKeyFromStore.isNotBlank() || geminiKeyInput.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    preferencesManager.clearGeminiApiKey()
+                                    geminiKeyInput = ""
+                                    testResultStatus = null
+                                    snackbarHostState.showSnackbar("GEMINI_API_KEY удален из DataStore")
+                                }
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Icon(Icons.Filled.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Удалить ключ из DataStore", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Text(
+                        text = "Где получить ключ: перейдите на ai.google.dev (Google AI Studio) и создайте бесплатный токен доступа API. Ключ сохранится в DataStore и решит проблему исчерпания квоты.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier
@@ -589,70 +859,6 @@ fun SettingsScreen(
         AudioPerceptionSettingsDialog(
             preferencesManager = preferencesManager,
             onDismissRequest = { showAudioPerceptionDialog = false }
-        )
-    }
-
-    if (showGeminiKeyDialog) {
-        var isKeyVisible by remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { showGeminiKeyDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Gemini API ключ")
-                }
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Ключ используется для сверхточного распознавания русского текста с фотографий без искажений букв и слов.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = geminiKeyInput,
-                        onValueChange = { geminiKeyInput = it },
-                        label = { Text("API ключ (AIzaSy...)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = if (isKeyVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
-                                Icon(
-                                    if (isKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                    contentDescription = null
-                                )
-                            }
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Бесплатный ключ можно получить на ai.google.dev",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            preferencesManager.setGeminiApiKey(geminiKeyInput.trim())
-                            showGeminiKeyDialog = false
-                            snackbarHostState.showSnackbar("Gemini API ключ сохранен")
-                        }
-                    }
-                ) {
-                    Text("Сохранить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showGeminiKeyDialog = false }) {
-                    Text("Отмена")
-                }
-            }
         )
     }
 }

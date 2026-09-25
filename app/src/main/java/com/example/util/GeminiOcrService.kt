@@ -44,6 +44,58 @@ object GeminiOcrService {
     }
 
     /**
+     * Verifies that the provided API key is valid and has active quota.
+     */
+    suspend fun testApiKey(apiKey: String): Result<String> = withContext(Dispatchers.IO) {
+        val trimmedKey = apiKey.trim()
+        if (trimmedKey.isBlank()) {
+            return@withContext Result.failure(Exception("Ключ API пуст. Введите ключ для проверки."))
+        }
+        var connection: HttpURLConnection? = null
+        try {
+            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$trimmedKey"
+            val url = URL(urlString)
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connectTimeout = 12000
+                readTimeout = 15000
+                doOutput = true
+                doInput = true
+            }
+
+            val rootJson = JSONObject().apply {
+                val contents = JSONArray()
+                val contentObj = JSONObject()
+                val parts = JSONArray()
+                parts.put(JSONObject().apply { put("text", "Ответь одним словом: Готово") })
+                contentObj.put("parts", parts)
+                contents.put(contentObj)
+                put("contents", contents)
+            }
+
+            connection.outputStream.use { os ->
+                val inputBytes = rootJson.toString().toByteArray(Charsets.UTF_8)
+                os.write(inputBytes, 0, inputBytes.size)
+                os.flush()
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode in 200..299) {
+                Result.success("Ключ действителен и готов к работе!")
+            } else {
+                val errorBody = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                val errorMessage = parseErrorMessage(errorBody, responseCode)
+                Result.failure(Exception(errorMessage))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(e.localizedMessage ?: "Сетевая ошибка при проверке ключа."))
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    /**
      * Performs ultra-accurate Russian/multilingual OCR using Gemini Vision.
      */
     suspend fun recognizeTextWithGemini(
