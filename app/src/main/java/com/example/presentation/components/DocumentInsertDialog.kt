@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 fun DocumentInsertDialog(
     documentUri: Uri,
     onDismissRequest: () -> Unit,
-    onInsertText: (insertedText: String, insertAtCursor: Boolean) -> Unit
+    onInsertText: (insertedText: String, insertAtCursor: Boolean, saveImmediately: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -302,7 +302,7 @@ fun DocumentInsertDialog(
                             ) {
                                 Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Копия")
+                                Text("Копия", fontSize = 11.sp)
                             }
 
                             OutlinedButton(
@@ -311,28 +311,37 @@ fun DocumentInsertDialog(
                                     val attachmentHeader = if (info != null) {
                                         "📎 Документ: ${info.fileName} (${info.formattedSize})\n\n"
                                     } else ""
-                                    onInsertText(attachmentHeader + currentText, true)
+                                    onInsertText(attachmentHeader + currentText, true, false)
                                     onDismissRequest()
                                 },
                                 enabled = currentText.isNotBlank(),
-                                modifier = Modifier.weight(1.3f)
+                                modifier = Modifier.weight(1.1f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
                             ) {
-                                Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("С вложением")
+                                Icon(Icons.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Вставить", fontSize = 11.sp)
                             }
 
                             Button(
                                 onClick = {
-                                    onInsertText(currentText, true)
+                                    val info = docInfo
+                                    val attachmentHeader = if (info != null) {
+                                        "📎 Документ: ${info.fileName} (${info.formattedSize})\n\n"
+                                    } else ""
+                                    onInsertText(attachmentHeader + currentText, true, true)
                                     onDismissRequest()
                                 },
                                 enabled = currentText.isNotBlank(),
-                                modifier = Modifier.weight(1.4f)
+                                modifier = Modifier.weight(1.4f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
                             ) {
-                                Icon(Icons.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Вставить текст")
+                                Text("Сохранить", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

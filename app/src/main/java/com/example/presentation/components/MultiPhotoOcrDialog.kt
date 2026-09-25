@@ -63,7 +63,7 @@ enum class MergeFormat(val title: String) {
 fun MultiPhotoOcrDialog(
     initialImageUris: List<Uri>,
     onDismissRequest: () -> Unit,
-    onInsertText: (insertedText: String, insertAtCursor: Boolean) -> Unit
+    onInsertText: (insertedText: String, insertAtCursor: Boolean, saveImmediately: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -686,12 +686,30 @@ fun MultiPhotoOcrDialog(
                                     cm.setPrimaryClip(ClipData.newPlainText("Recognized Notes", textToCopy))
                                     Toast.makeText(context, "Текст скопирован в буфер", Toast.LENGTH_SHORT).show()
                                 },
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                modifier = Modifier.weight(0.9f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
                             ) {
-                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Копия", fontSize = 12.sp)
+                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Копия", fontSize = 11.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val textToInsert = when (selectedTab) {
+                                        2 -> structuredText.ifEmpty { mergedText }
+                                        else -> mergedText
+                                    }
+                                    onInsertText(textToInsert, true, false)
+                                    onDismissRequest()
+                                },
+                                enabled = completedCount > 0,
+                                modifier = Modifier.weight(1.0f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Вставить", fontSize = 11.sp)
                             }
 
                             Button(
@@ -700,16 +718,19 @@ fun MultiPhotoOcrDialog(
                                         2 -> structuredText.ifEmpty { mergedText }
                                         else -> mergedText
                                     }
-                                    onInsertText(textToInsert, true)
+                                    onInsertText(textToInsert, true, true)
                                     onDismissRequest()
                                 },
                                 enabled = completedCount > 0,
-                                modifier = Modifier.weight(1.6f),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                modifier = Modifier.weight(1.5f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
                             ) {
-                                Icon(Icons.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Вставить в заметку", fontSize = 13.sp)
+                                Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Сохранить", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

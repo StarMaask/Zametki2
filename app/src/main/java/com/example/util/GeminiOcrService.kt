@@ -19,8 +19,13 @@ import kotlin.math.max
 
 object GeminiOcrService {
 
-    private const val MODEL_PRIMARY = "gemini-3.5-flash"
-    private const val MODEL_FALLBACK = "gemini-2.5-flash"
+    private val OCR_MODELS = listOf(
+        "gemini-flash-latest",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash-image",
+        "gemini-3.1-pro-preview"
+    )
 
     /**
      * Checks if a Gemini API key is configured either in BuildConfig or UserPreferences.
@@ -53,7 +58,7 @@ object GeminiOcrService {
         }
         var connection: HttpURLConnection? = null
         try {
-            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$trimmedKey"
+            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=$trimmedKey"
             val url = URL(urlString)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -152,19 +157,17 @@ object GeminiOcrService {
                 "2. Сохраняй исходную разбивку строк, абзацы и пунктуацию.\n" +
                 "3. Верни ТОЛЬКО распознанный текст без каких-либо вводных слов, пояснений или обрамления в ```."
 
-        // Attempt with primary model, fallback if needed
-        val primaryResult = executeGeminiRequest(MODEL_PRIMARY, apiKey, prompt, base64Image)
-        if (primaryResult.isSuccess) {
-            return@withContext primaryResult
+        // Attempt recognition with fallback models in sequence
+        var lastError: String = "Не удалось распознать текст через ИИ"
+        for (model in OCR_MODELS) {
+            val result = executeGeminiRequest(model, apiKey, prompt, base64Image)
+            if (result.isSuccess) {
+                return@withContext result
+            }
+            lastError = result.exceptionOrNull()?.localizedMessage ?: lastError
         }
 
-        // Try fallback model if primary returned overloaded/server error
-        val fallbackResult = executeGeminiRequest(MODEL_FALLBACK, apiKey, prompt, base64Image)
-        if (fallbackResult.isSuccess) {
-            return@withContext fallbackResult
-        }
-
-        return@withContext primaryResult
+        return@withContext Result.failure(Exception(lastError))
     }
 
     /**
@@ -202,13 +205,14 @@ object GeminiOcrService {
                 "3. Не добавляй никаких мета-комментариев («Вот ваш результат:» и т.п.) — сразу выдавай текст конспекта.\n\n" +
                 "Вот исходные материалы страниц:\n\n$joinedPages"
 
-        val primaryResult = executeGeminiTextRequest(MODEL_PRIMARY, apiKey, prompt)
-        if (primaryResult.isSuccess) return@withContext primaryResult
+        var lastError: String = "Не удалось структурировать конспект через ИИ"
+        for (model in OCR_MODELS) {
+            val result = executeGeminiTextRequest(model, apiKey, prompt)
+            if (result.isSuccess) return@withContext result
+            lastError = result.exceptionOrNull()?.localizedMessage ?: lastError
+        }
 
-        val fallbackResult = executeGeminiTextRequest(MODEL_FALLBACK, apiKey, prompt)
-        if (fallbackResult.isSuccess) return@withContext fallbackResult
-
-        return@withContext primaryResult
+        return@withContext Result.failure(Exception(lastError))
     }
 
     private fun executeGeminiTextRequest(

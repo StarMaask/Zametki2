@@ -474,18 +474,25 @@ fun NoteEditorScreen(
                     )
                 },
                 actions = {
-                    // 1. Save Button
-                    TooltipIconButton(
+                    // 1. Prominent Save Button
+                    Button(
                         onClick = {
                             viewModel.saveNote(context) {
-                                Toast.makeText(context, "Заметка сохранена", Toast.LENGTH_SHORT).show()
-                                onBack()
+                                Toast.makeText(context, "Заметка сохранена!", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        icon = Icons.Filled.Done,
-                        tooltip = "Сохранить и выйти",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = "Сохранить", modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Сохранить", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
 
                     // 2. Markdown Preview / Edit Mode Toggle
                     TooltipIconButton(
@@ -1610,8 +1617,38 @@ fun NoteEditorScreen(
                             enabled = state.canRedo,
                             tint = if (state.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                         )
+
+                        // 8. СОХРАНИТЬ (Quick Save)
+                        FilledTonalButton(
+                            onClick = {
+                                viewModel.saveNote(context) {
+                                    Toast.makeText(context, "Заметка успешно сохранена!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(Icons.Filled.Save, contentDescription = "Сохранить", modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Сохранить", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
+            }
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    viewModel.saveNote(context) {
+                        Toast.makeText(context, "Заметка сохранена!", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = CircleShape
+            ) {
+                Icon(Icons.Filled.Save, contentDescription = "Сохранить заметку")
             }
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -2767,22 +2804,38 @@ fun NoteEditorScreen(
         OcrScanResultDialog(
             imageUri = targetUri,
             onDismissRequest = { ocrTargetImageUri = null },
-            onInsertText = { insertedText, insertAtCursor ->
-                if (insertAtCursor) {
+            onInsertText = { insertedText, insertAtCursor, _ ->
+                val newContent = if (insertAtCursor) {
                     val currentText = contentTextFieldValue.text
                     val selection = contentTextFieldValue.selection
                     val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
-                    val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n" else ""
-                    val newText = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
+                    val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n\n" else ""
+                    val combined = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
                     val newCursor = insertPos + separator.length + insertedText.length
-                    contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
-                    viewModel.onContentChange(newText)
+                    contentTextFieldValue = TextFieldValue(combined, TextRange(newCursor))
+                    combined
                 } else {
                     val currentText = state.content
                     val separator = if (currentText.isNotBlank() && !currentText.endsWith("\n\n")) "\n\n" else ""
-                    val newText = currentText + separator + insertedText
-                    contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
-                    viewModel.onContentChange(newText)
+                    val combined = currentText + separator + insertedText
+                    contentTextFieldValue = TextFieldValue(combined, TextRange(combined.length))
+                    combined
+                }
+                viewModel.onContentChange(newContent)
+
+                if (state.title.isBlank()) {
+                    val suggestedTitle = insertedText.lines()
+                        .firstOrNull { it.isNotBlank() }
+                        ?.replace(Regex("^[-#*=~•\\s]+"), "")
+                        ?.take(40)
+                        ?.trim()
+                    if (!suggestedTitle.isNullOrBlank()) {
+                        viewModel.onTitleChange(suggestedTitle)
+                    }
+                }
+
+                viewModel.saveNote(context) {
+                    Toast.makeText(context, "Текст вставлен и заметка сохранена!", Toast.LENGTH_SHORT).show()
                 }
             }
         )
@@ -2792,22 +2845,38 @@ fun NoteEditorScreen(
         MultiPhotoOcrDialog(
             initialImageUris = targetUris,
             onDismissRequest = { multiOcrTargetUris = null },
-            onInsertText = { insertedText, insertAtCursor ->
-                if (insertAtCursor) {
+            onInsertText = { insertedText, insertAtCursor, _ ->
+                val newContent = if (insertAtCursor) {
                     val currentText = contentTextFieldValue.text
                     val selection = contentTextFieldValue.selection
                     val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
                     val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n\n" else ""
-                    val newText = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
+                    val combined = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
                     val newCursor = insertPos + separator.length + insertedText.length
-                    contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
-                    viewModel.onContentChange(newText)
+                    contentTextFieldValue = TextFieldValue(combined, TextRange(newCursor))
+                    combined
                 } else {
                     val currentText = state.content
                     val separator = if (currentText.isNotBlank() && !currentText.endsWith("\n\n")) "\n\n" else ""
-                    val newText = currentText + separator + insertedText
-                    contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
-                    viewModel.onContentChange(newText)
+                    val combined = currentText + separator + insertedText
+                    contentTextFieldValue = TextFieldValue(combined, TextRange(combined.length))
+                    combined
+                }
+                viewModel.onContentChange(newContent)
+
+                if (state.title.isBlank()) {
+                    val suggestedTitle = insertedText.lines()
+                        .firstOrNull { it.isNotBlank() }
+                        ?.replace(Regex("^[-#*=~•\\s]+"), "")
+                        ?.take(40)
+                        ?.trim()
+                    if (!suggestedTitle.isNullOrBlank()) {
+                        viewModel.onTitleChange(suggestedTitle)
+                    }
+                }
+
+                viewModel.saveNote(context) {
+                    Toast.makeText(context, "Текст со всех страниц вставлен и сохранен!", Toast.LENGTH_SHORT).show()
                 }
             }
         )
@@ -2817,22 +2886,38 @@ fun NoteEditorScreen(
         DocumentInsertDialog(
             documentUri = docUri,
             onDismissRequest = { targetDocumentUri = null },
-            onInsertText = { insertedText, insertAtCursor ->
-                if (insertAtCursor) {
+            onInsertText = { insertedText, insertAtCursor, _ ->
+                val newContent = if (insertAtCursor) {
                     val currentText = contentTextFieldValue.text
                     val selection = contentTextFieldValue.selection
                     val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
                     val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) "\n\n" else ""
-                    val newText = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
+                    val combined = currentText.substring(0, insertPos) + separator + insertedText + currentText.substring(insertPos)
                     val newCursor = insertPos + separator.length + insertedText.length
-                    contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
-                    viewModel.onContentChange(newText)
+                    contentTextFieldValue = TextFieldValue(combined, TextRange(newCursor))
+                    combined
                 } else {
                     val currentText = state.content
                     val separator = if (currentText.isNotBlank() && !currentText.endsWith("\n\n")) "\n\n" else ""
-                    val newText = currentText + separator + insertedText
-                    contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
-                    viewModel.onContentChange(newText)
+                    val combined = currentText + separator + insertedText
+                    contentTextFieldValue = TextFieldValue(combined, TextRange(combined.length))
+                    combined
+                }
+                viewModel.onContentChange(newContent)
+
+                if (state.title.isBlank()) {
+                    val suggestedTitle = insertedText.lines()
+                        .firstOrNull { it.isNotBlank() }
+                        ?.replace(Regex("^[-#*=~•\\s]+"), "")
+                        ?.take(40)
+                        ?.trim()
+                    if (!suggestedTitle.isNullOrBlank()) {
+                        viewModel.onTitleChange(suggestedTitle)
+                    }
+                }
+
+                viewModel.saveNote(context) {
+                    Toast.makeText(context, "Текст документа вставлен и сохранен!", Toast.LENGTH_SHORT).show()
                 }
             }
         )
