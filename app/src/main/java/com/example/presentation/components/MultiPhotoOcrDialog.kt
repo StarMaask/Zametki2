@@ -9,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -53,9 +53,9 @@ data class PageScanItem(
 )
 
 enum class MergeFormat(val title: String) {
-    WITH_HEADERS("С заголовками страниц"),
-    PLAIN_PARAGRAPHS("Сплошным текстом"),
-    NUMBERED_LIST("Нумерованный список")
+    WITH_HEADERS("С заголовками"),
+    PLAIN_PARAGRAPHS("Сплошной"),
+    NUMBERED_LIST("Нумерованный")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,7 +78,7 @@ fun MultiPhotoOcrDialog(
         mutableStateOf(if (hasApiKey) OcrMode.GEMINI_AI else OcrMode.LOCAL_DEVICE)
     }
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: По страницам, 1: Объединение, 2: ИИ-структурирование
+    var selectedTab by remember { mutableStateOf(0) } // 0: Страницы, 1: Объединение, 2: ИИ-конспект
     var mergeFormat by remember { mutableStateOf(MergeFormat.WITH_HEADERS) }
 
     var structuredText by remember { mutableStateOf("") }
@@ -86,7 +86,7 @@ fun MultiPhotoOcrDialog(
     var structureMode by remember { mutableStateOf(GeminiOcrService.TextStructureMode.STRUCTURED_NOTES) }
     var structureError by remember { mutableStateOf<String?>(null) }
 
-    // Launcher to add more photos to the batch
+    // Launcher to add more photos
     val addPhotosLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { newUris ->
@@ -96,7 +96,7 @@ fun MultiPhotoOcrDialog(
         }
     }
 
-    // Function to process a single item
+    // Function to run OCR for a specific item
     fun processItem(index: Int) {
         val item = items.getOrNull(index) ?: return
         coroutineScope.launch {
@@ -108,7 +108,7 @@ fun MultiPhotoOcrDialog(
                 val key = prefs.getGeminiApiKeySync()
                 val result = GeminiOcrService.recognizeTextWithGemini(context, item.uri, key)
                 if (result.isSuccess) {
-                    val text = result.getOrNull() ?: ""
+                    val text = result.getOrNull()?.trim() ?: ""
                     items = items.toMutableList().also { list ->
                         list[index] = list[index].copy(
                             status = PageOcrStatus.DONE,
@@ -117,36 +117,63 @@ fun MultiPhotoOcrDialog(
                         )
                     }
                 } else {
+                    val geminiError = result.exceptionOrNull()?.localizedMessage ?: "Ошибка ИИ"
                     // Fallback to local on-device OCR
-                    val localText = try {
-                        HandwritingPhotoDigitizer.extractTextFromImageOnDevice(context, item.uri)
+                    try {
+                        val localText = HandwritingPhotoDigitizer.extractTextFromImageOnDevice(context, item.uri).trim()
+                        if (localText.isNotBlank()) {
+                            items = items.toMutableList().also { list ->
+                                list[index] = list[index].copy(
+                                    status = PageOcrStatus.DONE,
+                                    recognizedText = localText,
+                                    errorMessage = null
+                                )
+                            }
+                        } else {
+                            items = items.toMutableList().also { list ->
+                                list[index] = list[index].copy(
+                                    status = PageOcrStatus.ERROR,
+                                    recognizedText = "",
+                                    errorMessage = "Текст на фото не распознан"
+                                )
+                            }
+                        }
                     } catch (e: Exception) {
-                        ""
-                    }
-                    items = items.toMutableList().also { list ->
-                        list[index] = list[index].copy(
-                            status = if (localText.isNotBlank()) PageOcrStatus.DONE else PageOcrStatus.ERROR,
-                            recognizedText = localText,
-                            errorMessage = if (localText.isNotBlank()) null else result.exceptionOrNull()?.localizedMessage
-                        )
+                        items = items.toMutableList().also { list ->
+                            list[index] = list[index].copy(
+                                status = PageOcrStatus.ERROR,
+                                recognizedText = "",
+                                errorMessage = geminiError
+                            )
+                        }
                     }
                 }
             } else {
                 try {
-                    val localText = HandwritingPhotoDigitizer.extractTextFromImageOnDevice(context, item.uri)
-                    items = items.toMutableList().also { list ->
-                        list[index] = list[index].copy(
-                            status = PageOcrStatus.DONE,
-                            recognizedText = localText,
-                            errorMessage = null
-                        )
+                    val localText = HandwritingPhotoDigitizer.extractTextFromImageOnDevice(context, item.uri).trim()
+                    if (localText.isNotBlank()) {
+                        items = items.toMutableList().also { list ->
+                            list[index] = list[index].copy(
+                                status = PageOcrStatus.DONE,
+                                recognizedText = localText,
+                                errorMessage = null
+                            )
+                        }
+                    } else {
+                        items = items.toMutableList().also { list ->
+                            list[index] = list[index].copy(
+                                status = PageOcrStatus.ERROR,
+                                recognizedText = "",
+                                errorMessage = "Текст не обнаружен. Проверьте четкость снимка."
+                            )
+                        }
                     }
                 } catch (e: Exception) {
                     items = items.toMutableList().also { list ->
                         list[index] = list[index].copy(
                             status = PageOcrStatus.ERROR,
                             recognizedText = "",
-                            errorMessage = e.localizedMessage ?: "Ошибка распознавания"
+                            errorMessage = e.localizedMessage ?: "Ошибка оптического распознавания"
                         )
                     }
                 }
@@ -154,7 +181,7 @@ fun MultiPhotoOcrDialog(
         }
     }
 
-    // Auto-process pending items sequentially
+    // Auto-process pending items
     LaunchedEffect(items, selectedMode) {
         for (i in items.indices) {
             if (items[i].status == PageOcrStatus.PENDING) {
@@ -167,7 +194,6 @@ fun MultiPhotoOcrDialog(
     val totalCount = items.size
     val isAnyProcessing = items.any { it.status == PageOcrStatus.PROCESSING }
 
-    // Merged text builder based on selected format
     val mergedText by remember(items, mergeFormat) {
         derivedStateOf {
             val validItems = items.filter { it.recognizedText.isNotBlank() }
@@ -191,84 +217,94 @@ fun MultiPhotoOcrDialog(
 
     Dialog(
         onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // TOP HEADER
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.CollectionsBookmark,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Пакетное сканирование фото",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "Обработано $completedCount из $totalCount страниц",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    IconButton(onClick = onDismissRequest) {
-                        Icon(Icons.Filled.Close, contentDescription = "Закрыть")
-                    }
-                }
-
-                // MODE SELECTOR & PROGRESS BAR
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
+            Card(
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // 1. TOP HEADER (COMPACT)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.CollectionsBookmark,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Пакетное сканирование фото",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = "Распознано $completedCount из $totalCount страниц",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onDismissRequest,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = "Закрыть", modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    // 2. MODE SELECTOR & CONTROLS ROW
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             FilterChip(
                                 selected = selectedMode == OcrMode.GEMINI_AI,
                                 onClick = {
                                     selectedMode = OcrMode.GEMINI_AI
-                                    // Reset and reprocess all
                                     items = items.map { it.copy(status = PageOcrStatus.PENDING) }
                                 },
-                                label = { Text("✨ ИИ Gemini") },
-                                leadingIcon = {
-                                    if (selectedMode == OcrMode.GEMINI_AI) {
-                                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    }
-                                }
+                                label = { Text("✨ ИИ Gemini", fontSize = 11.sp) },
+                                modifier = Modifier.height(32.dp)
                             )
 
                             FilterChip(
@@ -277,373 +313,404 @@ fun MultiPhotoOcrDialog(
                                     selectedMode = OcrMode.LOCAL_DEVICE
                                     items = items.map { it.copy(status = PageOcrStatus.PENDING) }
                                 },
-                                label = { Text("⚡ Офлайн (ML Kit)") },
-                                leadingIcon = {
-                                    if (selectedMode == OcrMode.LOCAL_DEVICE) {
-                                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    }
-                                }
+                                label = { Text("⚡ Офлайн (ML Kit)", fontSize = 11.sp) },
+                                modifier = Modifier.height(32.dp)
                             )
                         }
 
-                        OutlinedButton(
+                        FilledTonalButton(
                             onClick = { addPhotosLauncher.launch("image/*") },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.height(36.dp)
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(32.dp)
                         ) {
                             Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("+ Фото", style = MaterialTheme.typography.labelMedium)
+                            Text("+ Фото", fontSize = 11.sp)
                         }
                     }
 
                     if (isAnyProcessing) {
-                        Spacer(modifier = Modifier.height(6.dp))
                         LinearProgressIndicator(
                             progress = { if (totalCount > 0) completedCount.toFloat() / totalCount else 0f },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
                         )
                     }
-                }
 
-                // NAVIGATION TABS
-                PrimaryTabRow(
-                    selectedTabIndex = selectedTab,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Страницы ($totalCount)") },
-                        icon = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Объединить") },
-                        icon = { Icon(Icons.Filled.Merge, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("ИИ-структурирование") },
-                        icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
-                }
+                    // 3. TABS
+                    PrimaryTabRow(
+                        selectedTabIndex = selectedTab,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("Страницы ($totalCount)", fontSize = 12.sp, maxLines = 1) }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("Объединить", fontSize = 12.sp, maxLines = 1) }
+                        )
+                        Tab(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            text = { Text("ИИ-конспект", fontSize = 12.sp, maxLines = 1) }
+                        )
+                    }
 
-                // TAB CONTENT
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    when (selectedTab) {
-                        // TAB 0: PAGES LIST
-                        0 -> {
-                            if (items.isEmpty()) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text("Нет выбранных фото", style = MaterialTheme.typography.bodyMedium)
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Button(onClick = { addPhotosLauncher.launch("image/*") }) {
-                                            Text("Выбрать фото")
+                    // 4. MAIN SCROLLABLE CONTENT (WEIGHT = 1F)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        when (selectedTab) {
+                            // TAB 0: PAGES LIST
+                            0 -> {
+                                if (items.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.outline)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text("Нет выбранных фото", style = MaterialTheme.typography.bodyMedium)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Button(onClick = { addPhotosLauncher.launch("image/*") }) {
+                                                Text("Выбрать фото")
+                                            }
                                         }
                                     }
-                                }
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
-                                        ElevatedCard(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(12.dp)
-                                        ) {
-                                            Column(modifier = Modifier.padding(10.dp)) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
+                                            ElevatedCard(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Column(modifier = Modifier.padding(10.dp)) {
                                                     Row(
+                                                        modifier = Modifier.fillMaxWidth(),
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.weight(1f)
+                                                        horizontalArrangement = Arrangement.SpaceBetween
                                                     ) {
-                                                        AsyncImage(
-                                                            model = item.uri,
-                                                            contentDescription = "Страница ${index + 1}",
-                                                            modifier = Modifier
-                                                                .size(44.dp)
-                                                                .clip(RoundedCornerShape(8.dp)),
-                                                            contentScale = ContentScale.Crop
-                                                        )
-                                                        Spacer(modifier = Modifier.width(10.dp))
-                                                        Column {
-                                                            Text(
-                                                                text = "Страница ${index + 1}",
-                                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            modifier = Modifier.weight(1f)
+                                                        ) {
+                                                            AsyncImage(
+                                                                model = item.uri,
+                                                                contentDescription = "Страница ${index + 1}",
+                                                                modifier = Modifier
+                                                                    .size(42.dp)
+                                                                    .clip(RoundedCornerShape(8.dp)),
+                                                                contentScale = ContentScale.Crop
                                                             )
-                                                            when (item.status) {
-                                                                PageOcrStatus.PROCESSING -> {
-                                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
-                                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                                        Text("Распознавание...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                            Spacer(modifier = Modifier.width(10.dp))
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(
+                                                                    text = "Страница ${index + 1}",
+                                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                                                )
+                                                                when (item.status) {
+                                                                    PageOcrStatus.PROCESSING -> {
+                                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                            CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 2.dp)
+                                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                                            Text("Распознавание...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                                        }
                                                                     }
-                                                                }
-                                                                PageOcrStatus.DONE -> {
-                                                                    Text(
-                                                                        text = "${item.recognizedText.length} симв. (готово)",
-                                                                        style = MaterialTheme.typography.labelSmall,
-                                                                        color = MaterialTheme.colorScheme.primary
-                                                                    )
-                                                                }
-                                                                PageOcrStatus.ERROR -> {
-                                                                    Text(
-                                                                        text = item.errorMessage ?: "Ошибка",
-                                                                        style = MaterialTheme.typography.labelSmall,
-                                                                        color = MaterialTheme.colorScheme.error
-                                                                    )
-                                                                }
-                                                                PageOcrStatus.PENDING -> {
-                                                                    Text("В очереди", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                                                    PageOcrStatus.DONE -> {
+                                                                        Text(
+                                                                            text = "Готово • ${item.recognizedText.length} симв.",
+                                                                            style = MaterialTheme.typography.labelSmall,
+                                                                            color = MaterialTheme.colorScheme.primary
+                                                                        )
+                                                                    }
+                                                                    PageOcrStatus.ERROR -> {
+                                                                        Text(
+                                                                            text = item.errorMessage ?: "Ошибка распознавания",
+                                                                            style = MaterialTheme.typography.labelSmall,
+                                                                            color = MaterialTheme.colorScheme.error,
+                                                                            maxLines = 1,
+                                                                            overflow = TextOverflow.Ellipsis
+                                                                        )
+                                                                    }
+                                                                    PageOcrStatus.PENDING -> {
+                                                                        Text("В очереди", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                                                    }
                                                                 }
                                                             }
                                                         }
-                                                    }
 
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        IconButton(
-                                                            onClick = { processItem(index) },
-                                                            modifier = Modifier.size(32.dp)
-                                                        ) {
-                                                            Icon(Icons.Filled.Refresh, contentDescription = "Повторить", modifier = Modifier.size(18.dp))
-                                                        }
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            if (item.recognizedText.isNotBlank()) {
+                                                                IconButton(
+                                                                    onClick = {
+                                                                        items = items.toMutableList().also { list ->
+                                                                            list[index] = list[index].copy(isExpanded = !list[index].isExpanded)
+                                                                        }
+                                                                    },
+                                                                    modifier = Modifier.size(32.dp)
+                                                                ) {
+                                                                    Icon(
+                                                                        if (item.isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                                                        contentDescription = "Текст",
+                                                                        modifier = Modifier.size(18.dp)
+                                                                    )
+                                                                }
+                                                            }
 
-                                                        if (index > 0) {
+                                                            IconButton(
+                                                                onClick = { processItem(index) },
+                                                                modifier = Modifier.size(32.dp)
+                                                            ) {
+                                                                Icon(Icons.Filled.Refresh, contentDescription = "Повторить", modifier = Modifier.size(18.dp))
+                                                            }
+
+                                                            if (index > 0) {
+                                                                IconButton(
+                                                                    onClick = {
+                                                                        val mutable = items.toMutableList()
+                                                                        val tmp = mutable[index]
+                                                                        mutable[index] = mutable[index - 1]
+                                                                        mutable[index - 1] = tmp
+                                                                        items = mutable
+                                                                    },
+                                                                    modifier = Modifier.size(32.dp)
+                                                                ) {
+                                                                    Icon(Icons.Filled.ArrowUpward, contentDescription = "Вверх", modifier = Modifier.size(18.dp))
+                                                                }
+                                                            }
+
                                                             IconButton(
                                                                 onClick = {
-                                                                    val mutable = items.toMutableList()
-                                                                    val tmp = mutable[index]
-                                                                    mutable[index] = mutable[index - 1]
-                                                                    mutable[index - 1] = tmp
-                                                                    items = mutable
+                                                                    items = items.toMutableList().also { it.removeAt(index) }
                                                                 },
                                                                 modifier = Modifier.size(32.dp)
                                                             ) {
-                                                                Icon(Icons.Filled.ArrowUpward, contentDescription = "Вверх", modifier = Modifier.size(18.dp))
+                                                                Icon(Icons.Filled.DeleteOutline, contentDescription = "Удалить", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                                             }
                                                         }
+                                                    }
 
-                                                        IconButton(
-                                                            onClick = {
-                                                                items = items.toMutableList().also { it.removeAt(index) }
-                                                            },
-                                                            modifier = Modifier.size(32.dp)
+                                                    if (item.status == PageOcrStatus.ERROR && item.errorMessage != null) {
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Surface(
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                                            modifier = Modifier.fillMaxWidth()
                                                         ) {
-                                                            Icon(Icons.Filled.DeleteOutline, contentDescription = "Удалить", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                                            Text(
+                                                                text = item.errorMessage!!,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                                modifier = Modifier.padding(6.dp)
+                                                            )
+                                                        }
+                                                    }
+
+                                                    AnimatedVisibility(visible = item.isExpanded || (item.recognizedText.isNotBlank() && items.size <= 2)) {
+                                                        Column {
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                            OutlinedTextField(
+                                                                value = item.recognizedText,
+                                                                onValueChange = { newText ->
+                                                                    items = items.toMutableList().also { list ->
+                                                                        list[index] = list[index].copy(recognizedText = newText)
+                                                                    }
+                                                                },
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .heightIn(max = 120.dp),
+                                                                textStyle = MaterialTheme.typography.bodySmall,
+                                                                placeholder = { Text("Текст страницы...") }
+                                                            )
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
-                                                if (item.recognizedText.isNotBlank()) {
-                                                    Spacer(modifier = Modifier.height(8.dp))
-                                                    OutlinedTextField(
-                                                        value = item.recognizedText,
-                                                        onValueChange = { newText ->
-                                                            items = items.toMutableList().also { list ->
-                                                                list[index] = list[index].copy(recognizedText = newText)
-                                                            }
-                                                        },
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .heightIn(max = 140.dp),
-                                                        textStyle = MaterialTheme.typography.bodySmall,
-                                                        placeholder = { Text("Текст страницы...") }
-                                                    )
+                            // TAB 1: MERGED TEXT
+                            1 -> {
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Формат:",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            MergeFormat.values().forEach { fmt ->
+                                                FilterChip(
+                                                    selected = mergeFormat == fmt,
+                                                    onClick = { mergeFormat = fmt },
+                                                    label = { Text(fmt.title, fontSize = 10.sp) },
+                                                    modifier = Modifier.height(30.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    OutlinedTextField(
+                                        value = mergedText,
+                                        onValueChange = {},
+                                        readOnly = false,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f),
+                                        placeholder = { Text("Объединенный текст всех распознанных страниц...") }
+                                    )
+                                }
+                            }
+
+                            // TAB 2: AI STRUCTURING
+                            2 -> {
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        GeminiOcrService.TextStructureMode.values().forEach { mode ->
+                                            FilterChip(
+                                                selected = structureMode == mode,
+                                                onClick = { structureMode = mode },
+                                                label = { Text(mode.title, fontSize = 10.sp, maxLines = 1) },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    Button(
+                                        onClick = {
+                                            val texts = items.map { it.recognizedText }.filter { it.isNotBlank() }
+                                            if (texts.isEmpty()) {
+                                                Toast.makeText(context, "Нет распознанного текста для структурирования", Toast.LENGTH_SHORT).show()
+                                                return@Button
+                                            }
+                                            isStructuring = true
+                                            structureError = null
+                                            coroutineScope.launch {
+                                                val result = GeminiOcrService.structureBatchTexts(
+                                                    context = context,
+                                                    pageTexts = texts,
+                                                    mode = structureMode
+                                                )
+                                                isStructuring = false
+                                                if (result.isSuccess) {
+                                                    structuredText = result.getOrNull() ?: ""
+                                                    structureError = null
+                                                } else {
+                                                    structureError = result.exceptionOrNull()?.localizedMessage ?: "Ошибка ИИ"
                                                 }
                                             }
+                                        },
+                                        enabled = !isStructuring && completedCount > 0,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(38.dp)
+                                    ) {
+                                        if (isStructuring) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("ИИ структурирует конспект...", fontSize = 12.sp)
+                                        } else {
+                                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Запустить ИИ-структурирование", fontSize = 12.sp)
                                         }
                                     }
-                                }
-                            }
-                        }
 
-                        // TAB 1: MERGED TEXT PREVIEW
-                        1 -> {
-                            Column(modifier = Modifier.fillMaxSize()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Формат объединения:",
-                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                                    )
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        MergeFormat.values().forEach { fmt ->
-                                            FilterChip(
-                                                selected = mergeFormat == fmt,
-                                                onClick = { mergeFormat = fmt },
-                                                label = { Text(fmt.title, fontSize = 11.sp) }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                OutlinedTextField(
-                                    value = mergedText,
-                                    onValueChange = {},
-                                    readOnly = false,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    placeholder = { Text("Объединенный текст всех распознанных страниц...") }
-                                )
-                            }
-                        }
-
-                        // TAB 2: AI STRUCTURING & SYNTHESIS
-                        2 -> {
-                            Column(modifier = Modifier.fillMaxSize()) {
-                                Text(
-                                    text = "Выберите режим интеллектуальной обработки:",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    GeminiOcrService.TextStructureMode.values().forEach { mode ->
-                                        FilterChip(
-                                            selected = structureMode == mode,
-                                            onClick = { structureMode = mode },
-                                            label = { Text(mode.title, fontSize = 11.sp) },
-                                            modifier = Modifier.weight(1f)
+                                    if (structureError != null) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = structureError!!,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                            maxLines = 2
                                         )
                                     }
-                                }
 
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Button(
-                                    onClick = {
-                                        val texts = items.map { it.recognizedText }.filter { it.isNotBlank() }
-                                        if (texts.isEmpty()) {
-                                            Toast.makeText(context, "Нет распознанного текста для структурирования", Toast.LENGTH_SHORT).show()
-                                            return@Button
-                                        }
-                                        isStructuring = true
-                                        structureError = null
-                                        coroutineScope.launch {
-                                            val result = GeminiOcrService.structureBatchTexts(
-                                                context = context,
-                                                pageTexts = texts,
-                                                mode = structureMode
-                                            )
-                                            isStructuring = false
-                                            if (result.isSuccess) {
-                                                structuredText = result.getOrNull() ?: ""
-                                                structureError = null
-                                            } else {
-                                                structureError = result.exceptionOrNull()?.localizedMessage ?: "Ошибка ИИ"
-                                            }
-                                        }
-                                    },
-                                    enabled = !isStructuring && completedCount > 0,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    if (isStructuring) {
-                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("ИИ Gemini структурирует материалы...")
-                                    } else {
-                                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Структурировать страницы (${structureMode.title})")
-                                    }
-                                }
-
-                                if (structureError != null) {
                                     Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = structureError!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.error
+
+                                    OutlinedTextField(
+                                        value = structuredText.ifEmpty { mergedText },
+                                        onValueChange = { structuredText = it },
+                                        label = { Text(if (structuredText.isNotBlank()) "Готовый ИИ-конспект" else "Исходный объединенный текст", fontSize = 11.sp) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f),
+                                        placeholder = { Text("Здесь появится структурированный конспект...") }
                                     )
                                 }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                OutlinedTextField(
-                                    value = structuredText.ifEmpty { mergedText },
-                                    onValueChange = { structuredText = it },
-                                    label = { Text(if (structuredText.isNotBlank()) "Результат ИИ-структурирования" else "Предпросмотр исходного текста") },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    placeholder = { Text("Здесь появится структурированный конспект...") }
-                                )
                             }
                         }
                     }
-                }
 
-                // BOTTOM ACTION BAR
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    tonalElevation = 3.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // 5. BOTTOM ACTION BAR (ALWAYS DOCKED & VISIBLE)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        tonalElevation = 4.dp
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                val textToCopy = when (selectedTab) {
-                                    2 -> structuredText.ifEmpty { mergedText }
-                                    else -> mergedText
-                                }
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("Recognized Notes", textToCopy))
-                                Toast.makeText(context, "Текст скопирован в буфер", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Копия")
-                        }
+                            OutlinedButton(
+                                onClick = {
+                                    val textToCopy = when (selectedTab) {
+                                        2 -> structuredText.ifEmpty { mergedText }
+                                        else -> mergedText
+                                    }
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("Recognized Notes", textToCopy))
+                                    Toast.makeText(context, "Текст скопирован в буфер", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Копия", fontSize = 12.sp)
+                            }
 
-                        Button(
-                            onClick = {
-                                val textToInsert = when (selectedTab) {
-                                    2 -> structuredText.ifEmpty { mergedText }
-                                    else -> mergedText
-                                }
-                                onInsertText(textToInsert, true)
-                                onDismissRequest()
-                            },
-                            enabled = completedCount > 0,
-                            modifier = Modifier.weight(1.4f)
-                        ) {
-                            Icon(Icons.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Вставить в текст")
+                            Button(
+                                onClick = {
+                                    val textToInsert = when (selectedTab) {
+                                        2 -> structuredText.ifEmpty { mergedText }
+                                        else -> mergedText
+                                    }
+                                    onInsertText(textToInsert, true)
+                                    onDismissRequest()
+                                },
+                                enabled = completedCount > 0,
+                                modifier = Modifier.weight(1.6f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Вставить в заметку", fontSize = 13.sp)
+                            }
                         }
                     }
                 }

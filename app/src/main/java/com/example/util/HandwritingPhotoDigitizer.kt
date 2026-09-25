@@ -178,7 +178,7 @@ object HandwritingPhotoDigitizer {
             cleaned
         } catch (e: Exception) {
             e.printStackTrace()
-            "Ошибка при распознавании текста с фото: ${e.localizedMessage ?: "неизвестная ошибка"}. Проверьте четкость снимка."
+            throw Exception(e.localizedMessage ?: "Не удалось распознать текст с фото. Проверьте четкость снимка.")
         } finally {
             try {
                 recognizer.close()

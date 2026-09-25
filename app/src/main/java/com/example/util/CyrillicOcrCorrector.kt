@@ -353,19 +353,21 @@ object CyrillicOcrCorrector {
     }
 
     private fun decodeToken(token: String): String {
-        if (token.isBlank()) return token
+        try {
+            if (token.isBlank() || token.none { it.isLetterOrDigit() }) return token
 
-        // Keep URLs, emails, hashtags intact
-        if (token.startsWith("http") || token.startsWith("@") || token.startsWith("#")) {
-            return token
-        }
+            // Keep URLs, emails, hashtags intact
+            if (token.startsWith("http") || token.startsWith("@") || token.startsWith("#")) {
+                return token
+            }
 
-        // Check if there is punctuation around the word
-        val prefix = token.takeWhile { !it.isLetterOrDigit() }
-        val suffix = token.takeLastWhile { !it.isLetterOrDigit() }
-        val core = token.substring(prefix.length, token.length - suffix.length)
+            // Check if there is punctuation around the word
+            val prefix = token.takeWhile { !it.isLetterOrDigit() }
+            val suffix = token.takeLastWhile { !it.isLetterOrDigit() }
+            val endIndex = (token.length - suffix.length).coerceAtLeast(prefix.length)
+            val core = if (endIndex > prefix.length) token.substring(prefix.length, endIndex) else ""
 
-        if (core.isEmpty()) return token
+            if (core.isEmpty()) return token
 
         // Direct dictionary match on core
         directWordMap[core]?.let { return prefix + it + suffix }
@@ -408,7 +410,10 @@ object CyrillicOcrCorrector {
             }
         }
 
-        return prefix + decoded + suffix
+            return prefix + decoded + suffix
+        } catch (_: Exception) {
+            return token
+        }
     }
 
     private fun applyGlyphTransliteration(word: String): String {
