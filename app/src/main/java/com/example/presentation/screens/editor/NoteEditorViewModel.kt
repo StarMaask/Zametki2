@@ -381,13 +381,15 @@ class NoteEditorViewModel(
             )
         }
         _uiState.update { current ->
+            val hasContent = templateData.content.isNotBlank()
             current.copy(
                 title = if (current.title.isBlank()) titleSource else current.title,
+                content = if (current.content.isBlank() && hasContent) templateData.content else current.content,
                 colorHex = templateData.colorHex,
                 folder = templateData.folder ?: current.folder,
                 tags = (current.tags + templateData.tags).distinct(),
                 checkList = items,
-                isChecklistMode = items.isNotEmpty()
+                isChecklistMode = items.isNotEmpty() && !hasContent
             )
         }
     }

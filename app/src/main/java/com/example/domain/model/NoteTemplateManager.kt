@@ -8,9 +8,11 @@ data class CustomTemplateData(
     val description: String,
     val noteTitle: String,
     val checklistItems: List<String>,
+    val content: String = "",
     val folder: String?,
     val tags: List<String>,
-    val colorHex: String
+    val colorHex: String,
+    val category: String = "Официальные документы"
 )
 
 object NoteTemplateManager {
@@ -29,9 +31,11 @@ object NoteTemplateManager {
                 description = template.description,
                 noteTitle = template.defaultTitle,
                 checklistItems = template.checklistItems.toList(),
+                content = template.defaultContent,
                 folder = template.defaultFolder,
                 tags = template.defaultTags.toList(),
-                colorHex = template.colorHex
+                colorHex = template.colorHex,
+                category = template.category
             )
         }
     }
@@ -43,9 +47,11 @@ object NoteTemplateManager {
             description = template.description,
             noteTitle = template.defaultTitle,
             checklistItems = template.checklistItems.toList(),
+            content = template.defaultContent,
             folder = template.defaultFolder,
             tags = template.defaultTags.toList(),
-            colorHex = template.colorHex
+            colorHex = template.colorHex,
+            category = template.category
         )
     }
 
@@ -56,9 +62,11 @@ object NoteTemplateManager {
             description = template.description,
             noteTitle = template.defaultTitle,
             checklistItems = template.checklistItems.toList(),
+            content = template.defaultContent,
             folder = template.defaultFolder,
             tags = template.defaultTags.toList(),
-            colorHex = template.colorHex
+            colorHex = template.colorHex,
+            category = template.category
         )
     }
 

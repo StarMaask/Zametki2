@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.PushPin
@@ -247,95 +249,181 @@ fun NotesListScreen(
                         )
 
                         var menuExpanded by remember { mutableStateOf(false) }
+                        var activeListSubMenu by remember { mutableStateOf<String?>(null) }
                         Box {
                             TooltipIconButton(
-                                onClick = { menuExpanded = true },
+                                onClick = {
+                                    activeListSubMenu = null
+                                    menuExpanded = true
+                                },
                                 icon = Icons.Filled.MoreVert,
                                 tooltip = "Главное меню"
                             )
                             DropdownMenu(
                                 expanded = menuExpanded,
-                                onDismissRequest = { menuExpanded = false }
+                                onDismissRequest = {
+                                    menuExpanded = false
+                                    activeListSubMenu = null
+                                }
                             ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Архив")
-                                            Text("Архивированные заметки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (activeListSubMenu == null) {
+                                    // Main Categories
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("📁 Управление заметками", fontWeight = FontWeight.SemiBold)
+                                                Text("Архив, корзина, хранилище", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.FolderSpecial, null, tint = MaterialTheme.colorScheme.primary) },
+                                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { activeListSubMenu = "storage" }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("📑 Шаблоны документов ГОСТ", fontWeight = FontWeight.SemiBold)
+                                                Text("Заявления, акты, служебные записки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showTemplateDialog = true
                                         }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Archive, null) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onArchiveClick()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Корзина")
-                                            Text("Удаленные заметки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("📊 Продуктивность и учёба", fontWeight = FontWeight.SemiBold)
+                                                Text("Статистика, дедлайны, таймер Помодоро", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Analytics, null, tint = MaterialTheme.colorScheme.tertiary) },
+                                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { activeListSubMenu = "productivity" }
+                                    )
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("⚙️ Настройки и справка", fontWeight = FontWeight.SemiBold)
+                                                Text("Gemini API, безопасность, инструкция", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { activeListSubMenu = "settings" }
+                                    )
+                                } else if (activeListSubMenu == "storage") {
+                                    // Submenu: Storage & Organization
+                                    DropdownMenuItem(
+                                        text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = { activeListSubMenu = null }
+                                    )
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Архив заметок")
+                                                Text("Скрытые из основного списка", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Archive, null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            onArchiveClick()
                                         }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Delete, null) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onTrashClick()
-                                    }
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Академическая статистика")
-                                            Text("Прогресс учебы, дедлайны, объем", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Корзина", color = MaterialTheme.colorScheme.error)
+                                                Text("Удаленные заметки (восстановление)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            onTrashClick()
                                         }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Analytics, null, tint = MaterialTheme.colorScheme.primary) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showStudyStatisticsDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Таймер учёбы (Помодоро)")
-                                            Text("Интервалы концентрации и фоновые звуки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    )
+                                } else if (activeListSubMenu == "productivity") {
+                                    // Submenu: Productivity & Study
+                                    DropdownMenuItem(
+                                        text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = { activeListSubMenu = null }
+                                    )
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Академическая статистика")
+                                                Text("Прогресс конспектов, объем, дедлайны", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Analytics, null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            showStudyStatisticsDialog = true
                                         }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.HourglassBottom, null, tint = MaterialTheme.colorScheme.primary) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showFocusTimerDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Справка и подсказки")
-                                            Text("Как пользоваться функциями", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Таймер концентрации (Помодоро)")
+                                                Text("Фокусировка, фоновые звуки и дзен", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.HourglassBottom, null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            showFocusTimerDialog = true
                                         }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.HelpOutline, null) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showHelpDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Настройки")
-                                            Text("Gemini API, PIN-код, темы, бэкап", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    )
+                                } else if (activeListSubMenu == "settings") {
+                                    // Submenu: Settings & Help
+                                    DropdownMenuItem(
+                                        text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = { activeListSubMenu = null }
+                                    )
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Параметры и настройки")
+                                                Text("Gemini API, PIN-код, тема, бэкап", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            onSettingsClick()
                                         }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Settings, null) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onSettingsClick()
-                                    }
-                                )
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Справка и подсказки")
+                                                Text("Руководство по возможностям", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.HelpOutline, null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            showHelpDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

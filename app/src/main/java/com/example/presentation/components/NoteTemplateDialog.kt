@@ -2,9 +2,11 @@ package com.example.presentation.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -25,9 +27,20 @@ fun NoteTemplateDialog(
     onTemplateSelect: (NoteTemplate) -> Unit
 ) {
     var expandedTemplate by remember { mutableStateOf<NoteTemplate?>(null) }
+    var selectedCategory by remember { mutableStateOf("Все") }
     var newItemText by remember { mutableStateOf("") }
     var editingItemIndex by remember { mutableStateOf<Int?>(null) }
     var editingItemText by remember { mutableStateOf("") }
+
+    val categories = listOf("Все", "Официальные документы", "Списки и задачи", "Базовые")
+
+    val filteredTemplates = remember(selectedCategory) {
+        if (selectedCategory == "Все") {
+            NoteTemplate.values().toList()
+        } else {
+            NoteTemplate.values().filter { it.category == selectedCategory }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
@@ -41,273 +54,284 @@ fun NoteTemplateDialog(
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "Готовые шаблоны заметок",
+                    text = "Шаблоны документов и заметок",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = "Нажмите на стрелку, чтобы редактировать и удалять пункты",
+                    text = "Заявления, служебные записки, акты, протоколы и списки",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         },
         text = {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 480.dp)
-            ) {
-                items(NoteTemplate.values()) { template ->
-                    val templateData = NoteTemplateManager.getTemplate(template)
-                    val isExpanded = expandedTemplate == template
-                    val isBlank = template == NoteTemplate.BLANK
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Category Filter Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    categories.forEach { cat ->
+                        FilterChip(
+                            selected = selectedCategory == cat,
+                            onClick = { selectedCategory = cat },
+                            label = { Text(cat, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
 
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isExpanded) {
-                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            }
-                        ),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        if (isBlank) {
-                                            onTemplateSelect(template)
-                                        } else {
-                                            expandedTemplate = if (isExpanded) null else template
-                                        }
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val icon: ImageVector = when (template) {
-                                    NoteTemplate.BLANK -> Icons.Filled.Description
-                                    NoteTemplate.SHOPPING_LIST -> Icons.Filled.ShoppingCart
-                                    NoteTemplate.DAILY_PLAN -> Icons.Filled.Checklist
-                                    NoteTemplate.MEETING_NOTES -> Icons.Filled.Groups
-                                    NoteTemplate.PROJECT_IDEA -> Icons.Filled.Lightbulb
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 440.dp)
+                ) {
+                    items(filteredTemplates) { template ->
+                        val templateData = NoteTemplateManager.getTemplate(template)
+                        val isExpanded = expandedTemplate == template
+                        val isBlank = template == NoteTemplate.BLANK
+                        val hasDocContent = templateData.content.isNotBlank()
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isExpanded) {
+                                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 }
-
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.size(42.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = templateData.title,
-                                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
-                                    )
-                                    Text(
-                                        text = if (templateData.checklistItems.isNotEmpty()) {
-                                            "${templateData.description} (${templateData.checklistItems.size} пунктов)"
-                                        } else {
-                                            templateData.description
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                if (!isBlank) {
-                                    IconButton(
-                                        onClick = {
-                                            expandedTemplate = if (isExpanded) null else template
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                            contentDescription = if (isExpanded) "Свернуть" else "Развернуть и редактировать пункты"
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Expanded Checklist Items Manager
-                            AnimatedVisibility(visible = isExpanded && !isBlank) {
-                                Column(
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(top = 10.dp)
+                                        .clickable {
+                                            if (isBlank) {
+                                                onTemplateSelect(template)
+                                            } else {
+                                                expandedTemplate = if (isExpanded) null else template
+                                            }
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    HorizontalDivider(
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                        modifier = Modifier.padding(bottom = 8.dp)
-                                    )
+                                    val icon: ImageVector = when (template) {
+                                        NoteTemplate.BLANK -> Icons.Filled.Description
+                                        NoteTemplate.STATEMENT_VACATION -> Icons.Filled.BeachAccess
+                                        NoteTemplate.STATEMENT_EMPLOYMENT -> Icons.Filled.Badge
+                                        NoteTemplate.STATEMENT_DISMISSAL -> Icons.Filled.ExitToApp
+                                        NoteTemplate.MEMORANDUM -> Icons.Filled.TextSnippet
+                                        NoteTemplate.ACT_ACCEPTANCE -> Icons.Filled.FactCheck
+                                        NoteTemplate.MEETING_PROTOCOL -> Icons.Filled.Gavel
+                                        NoteTemplate.EXPLANATORY_NOTE -> Icons.Filled.HelpCenter
+                                        NoteTemplate.SHOPPING_LIST -> Icons.Filled.ShoppingCart
+                                        NoteTemplate.DAILY_PLAN -> Icons.Filled.Checklist
+                                        NoteTemplate.MEETING_NOTES -> Icons.Filled.Groups
+                                        NoteTemplate.PROJECT_IDEA -> Icons.Filled.Lightbulb
+                                    }
 
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.size(42.dp)
                                     ) {
-                                        Text(
-                                            text = "Пункты шаблона (${templateData.checklistItems.size}):",
-                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        TextButton(
-                                            onClick = { NoteTemplateManager.resetTemplate(template) },
-                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Сбросить", fontSize = 12.sp)
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = icon,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.size(22.dp)
+                                            )
                                         }
                                     }
 
-                                    if (templateData.checklistItems.isEmpty()) {
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "В шаблоне нет пунктов. Добавьте свои ниже!",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(vertical = 6.dp)
+                                            text = templateData.title,
+                                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
                                         )
-                                    } else {
-                                        templateData.checklistItems.forEachIndexed { index, itemText ->
-                                            key(template.name + "_item_" + index) {
+                                        Text(
+                                            text = if (hasDocContent) {
+                                                "${templateData.description} • Официальный текст"
+                                            } else if (templateData.checklistItems.isNotEmpty()) {
+                                                "${templateData.description} (${templateData.checklistItems.size} пунктов)"
+                                            } else {
+                                                templateData.description
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    if (!isBlank) {
+                                        IconButton(
+                                            onClick = {
+                                                expandedTemplate = if (isExpanded) null else template
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                                contentDescription = if (isExpanded) "Свернуть" else "Развернуть"
+                                            )
+                                        }
+                                    }
+                                }
+
+                                AnimatedVisibility(visible = isExpanded) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 10.dp)
+                                    ) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(vertical = 6.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                        )
+
+                                        if (hasDocContent) {
+                                            Text(
+                                                text = "Образец документа:",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(bottom = 4.dp)
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surface,
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                                            ) {
+                                                Text(
+                                                    text = templateData.content.take(220) + "...",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(8.dp)
+                                                )
+                                            }
+                                        }
+
+                                        if (templateData.checklistItems.isNotEmpty()) {
+                                            Text(
+                                                text = "Пункты чеклиста / Шаги оформления:",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(bottom = 4.dp)
+                                            )
+
+                                            templateData.checklistItems.forEachIndexed { index, itemText ->
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .padding(vertical = 3.dp),
+                                                        .padding(vertical = 2.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Filled.Check,
                                                         contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                                        modifier = Modifier.size(16.dp)
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(14.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(6.dp))
 
-                                                    if (editingItemIndex == index && expandedTemplate == template) {
+                                                    if (editingItemIndex == index) {
                                                         OutlinedTextField(
                                                             value = editingItemText,
                                                             onValueChange = { editingItemText = it },
                                                             singleLine = true,
                                                             modifier = Modifier.weight(1f),
-                                                            textStyle = MaterialTheme.typography.bodySmall,
-                                                            trailingIcon = {
-                                                                IconButton(
-                                                                    onClick = {
-                                                                        if (editingItemText.isNotBlank()) {
-                                                                            NoteTemplateManager.updateItemInTemplate(template, index, editingItemText.trim())
-                                                                        }
-                                                                        editingItemIndex = null
-                                                                    }
-                                                                ) {
-                                                                    Icon(Icons.Filled.Done, contentDescription = "Применить", modifier = Modifier.size(16.dp))
-                                                                }
-                                                            }
+                                                            textStyle = MaterialTheme.typography.bodySmall
                                                         )
+                                                        IconButton(
+                                                            onClick = {
+                                                                if (editingItemText.isNotBlank()) {
+                                                                    NoteTemplateManager.updateItemInTemplate(template, index, editingItemText.trim())
+                                                                }
+                                                                editingItemIndex = null
+                                                            },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(Icons.Filled.Done, contentDescription = "Сохранить", modifier = Modifier.size(16.dp))
+                                                        }
                                                     } else {
                                                         Text(
                                                             text = itemText,
-                                                            style = MaterialTheme.typography.bodyMedium,
-                                                            modifier = Modifier
-                                                                .weight(1f)
-                                                                .clickable {
-                                                                    editingItemIndex = index
-                                                                    editingItemText = itemText
-                                                                }
-                                                                .padding(vertical = 4.dp)
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            modifier = Modifier.weight(1f)
                                                         )
                                                         IconButton(
                                                             onClick = {
                                                                 editingItemIndex = index
                                                                 editingItemText = itemText
                                                             },
-                                                            modifier = Modifier.size(32.dp)
+                                                            modifier = Modifier.size(28.dp)
                                                         ) {
-                                                            Icon(
-                                                                imageVector = Icons.Filled.Edit,
-                                                                contentDescription = "Редактировать пункт",
-                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                                modifier = Modifier.size(16.dp)
-                                                            )
+                                                            Icon(Icons.Filled.Edit, contentDescription = "Редактировать", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                                         }
-                                                    }
-
-                                                    IconButton(
-                                                        onClick = {
-                                                            if (editingItemIndex == index) editingItemIndex = null
-                                                            NoteTemplateManager.deleteItemFromTemplate(template, index)
-                                                        },
-                                                        modifier = Modifier.size(32.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Filled.DeleteOutline,
-                                                            contentDescription = "Удалить пункт",
-                                                            tint = MaterialTheme.colorScheme.error,
-                                                            modifier = Modifier.size(18.dp)
-                                                        )
+                                                        IconButton(
+                                                            onClick = {
+                                                                NoteTemplateManager.deleteItemFromTemplate(template, index)
+                                                            },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(Icons.Filled.Close, contentDescription = "Удалить", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
-                                    }
 
-                                    // Add Item Row
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        OutlinedTextField(
-                                            value = newItemText,
-                                            onValueChange = { newItemText = it },
-                                            placeholder = { Text("Новый пункт...", fontSize = 12.sp) },
-                                            singleLine = true,
-                                            textStyle = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Button(
-                                            onClick = {
-                                                if (newItemText.isNotBlank()) {
-                                                    NoteTemplateManager.addItemToTemplate(template, newItemText.trim())
-                                                    newItemText = ""
+                                            // Add new item row
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = newItemText,
+                                                    onValueChange = { newItemText = it },
+                                                    placeholder = { Text("Добавить пункт...", fontSize = 11.sp) },
+                                                    singleLine = true,
+                                                    modifier = Modifier.weight(1f),
+                                                    textStyle = MaterialTheme.typography.bodySmall
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                IconButton(
+                                                    onClick = {
+                                                        if (newItemText.isNotBlank()) {
+                                                            NoteTemplateManager.addItemToTemplate(template, newItemText.trim())
+                                                            newItemText = ""
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Add, contentDescription = "Добавить", tint = MaterialTheme.colorScheme.primary)
                                                 }
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Add, contentDescription = "Добавить пункт", modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Добавить", fontSize = 12.sp)
+                                            }
                                         }
-                                    }
 
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                        Spacer(modifier = Modifier.height(10.dp))
 
-                                    // Apply / Create Note Button
-                                    Button(
-                                        onClick = {
-                                            onTemplateSelect(template)
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Создать заметку по этому шаблону")
+                                        // Apply Template Button
+                                        Button(
+                                            onClick = { onTemplateSelect(template) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                        ) {
+                                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Использовать этот шаблон")
+                                        }
                                     }
                                 }
                             }
@@ -319,7 +343,7 @@ fun NoteTemplateDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismissRequest) {
-                Text("Отмена")
+                Text("Закрыть")
             }
         }
     )

@@ -15,8 +15,8 @@ android {
         applicationId = "com.aistudio.notes.app.ffvgpz"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
         val envFile = rootProject.file(".env")
         val envProperties = Properties()
@@ -31,6 +31,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
@@ -83,6 +84,7 @@ import com.example.presentation.components.TableInsertDialog
 import com.example.presentation.components.OcrScanResultDialog
 import com.example.presentation.components.MultiPhotoOcrDialog
 import com.example.presentation.components.DocumentInsertDialog
+import com.example.presentation.components.AiDocumentExpertDialog
 import com.example.presentation.components.GeminiApiKeyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
@@ -128,6 +130,9 @@ fun NoteEditorScreen(
     var showFormatMenu by remember { mutableStateOf(false) }
     var showOrganizeMenu by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
+    var activeTopSubMenu by remember { mutableStateOf<String?>(null) }
+    var showExportMenu by remember { mutableStateOf(false) }
+    var showAiExpertDialog by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
     var showPageFormatDialog by remember { mutableStateOf(false) }
     var showShareSheet by remember { mutableStateOf(false) }
@@ -552,349 +557,645 @@ fun NoteEditorScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
 
-                    // 6. Overflow Menu
+                    // 6. Overflow Menu (Categorized Submenus)
                     Box {
                         TooltipIconButton(
-                            onClick = { showTopMenu = true },
+                            onClick = {
+                                activeTopSubMenu = null
+                                showTopMenu = true
+                            },
                             icon = Icons.Filled.MoreVert,
-                            tooltip = "Дополнительные действия"
+                            tooltip = "Главное меню действий"
                         )
                         DropdownMenu(
                             expanded = showTopMenu,
-                            onDismissRequest = { showTopMenu = false }
+                            onDismissRequest = {
+                                showTopMenu = false
+                                activeTopSubMenu = null
+                            }
                         ) {
-                            // Умный конспект
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Умный конспект & Тезисы")
-                                        Text("Резюме, глоссарий терминов, Д/З и контрольные вопросы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (activeTopSubMenu == null) {
+                                // Category 1: AI & Documents
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🤖 ИИ Экспертиза и документы", fontWeight = FontWeight.SemiBold)
+                                            Text("Анализ ГОСТ, исправление, трактовки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
+                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                    onClick = { activeTopSubMenu = "ai" }
+                                )
+                                // Category 2: Export & Formats
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("📤 Экспорт и документы", fontWeight = FontWeight.SemiBold)
+                                            Text("PDF (.pdf), Word (.doc), Excel (.xls)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.PictureAsPdf, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                    onClick = { activeTopSubMenu = "export" }
+                                )
+                                // Category 3: Audio & Speech
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🎙️ Звук и аудиозапись", fontWeight = FontWeight.SemiBold)
+                                            Text("Непрерывная запись, озвучка, микрофон", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Mic, null, tint = MaterialTheme.colorScheme.tertiary) },
+                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                    onClick = { activeTopSubMenu = "audio" }
+                                )
+                                // Category 4: Sheet Style & Fonts
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🎨 Оформление листа и шрифт", fontWeight = FontWeight.SemiBold)
+                                            Text("Формат листа, шрифт, оцифровка почерка", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
+                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                    onClick = { activeTopSubMenu = "style" }
+                                )
+                                // Category 5: Organization & Security
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("📁 Организация и защита", fontWeight = FontWeight.SemiBold)
+                                            Text("Папки, теги, PIN-код, напоминания", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FolderSpecial, null) },
+                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                    onClick = { activeTopSubMenu = "organize" }
+                                )
+                                // Category 6: Study & Analytics
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🎓 Обучение и аналитика", fontWeight = FontWeight.SemiBold)
+                                            Text("Карточки, интеллект-карта, таймер", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.School, null) },
+                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(16.dp)) },
+                                    onClick = { activeTopSubMenu = "study" }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Удалить в корзину", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                                            Text("Можно восстановить из корзины", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        viewModel.moveToTrash(context) { onBack() }
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Psychology, null, tint = MaterialTheme.colorScheme.primary) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showLectureSummaryDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Оглавление и разделы")
-                                        Text("Быстрый переход по заголовкам и таймкодам", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                            } else if (activeTopSubMenu == "ai") {
+                                // Submenu: AI & Documents
+                                DropdownMenuItem(
+                                    text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = { activeTopSubMenu = null }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("ИИ Экспертиза и проверка", fontWeight = FontWeight.Bold)
+                                            Text("Анализ ГОСТ, поиск ошибок, проверка реквизитов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FactCheck, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showAiExpertDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.FormatListNumbered, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showTableOfContentsSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Интервальные карточки")
-                                        Text("Режим активного запоминания понятий и вопросов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Форматирование по ГОСТ")
+                                            Text("Шапка справа, центрированный заголовок, красная строка", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatAlignJustify, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showAiExpertDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.School, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showFlashcardStudyDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Интеллект-карта понятий")
-                                        Text("Интерактивный граф связей тем и определений", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Варианты стилистической трактовки")
+                                            Text("Деловой, дипломатичный, краткий", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Psychology, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showAiExpertDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Hub, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showMindMapDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Таймер учёбы (Помодоро)")
-                                        Text("Интервалы концентрации, фоновые звуки и дзен-режим", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Умный конспект & Тезисы")
+                                            Text("Резюме, глоссарий терминов, Д/З и контрольные вопросы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoStories, null, tint = MaterialTheme.colorScheme.tertiary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showLectureSummaryDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.HourglassBottom, null, tint = MaterialTheme.colorScheme.primary) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showFocusTimerDialog = true
-                                }
-                            )
-                            HorizontalDivider()
-
-                            // Озвучивание
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(if (speechManager.isSpeaking) "Остановить чтение" else "Озвучить заметку вслух")
-                                        Text("Воспроизведение текста через синтезатор", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(if (speechManager.isSpeaking) Icons.Filled.VolumeUp else Icons.Filled.VolumeMute, null, tint = if (speechManager.isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) },
-                                onClick = {
-                                    showTopMenu = false
-                                    if (speechManager.isSpeaking) {
-                                        speechManager.stop()
-                                    } else {
-                                        val fullText = if (state.content.isNotBlank()) state.content else state.title
-                                        speechManager.speak(fullText, state.title)
-                                    }
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Настройки голоса")
-                                        Text("Выбор голоса, тембр и скорость речи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.SettingsVoice, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showVoiceSettingsDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Качество восприятия звука")
-                                        Text("Настройка микрофона и словарь автозамены слов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Tune, null, tint = MaterialTheme.colorScheme.primary) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showAudioPerceptionDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(if (lectureManager.isRecording) "Остановить «Звук в текст»" else "Звук в текст (Непрерывная запись)")
-                                        Text(if (lectureManager.isRecording) "Завершить распознавание речи" else "Плавный перевод речи и лекций в текст без прерываний", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(if (lectureManager.isRecording) Icons.Filled.Stop else Icons.Filled.Mic, null, tint = if (lectureManager.isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
-                                onClick = {
-                                    showTopMenu = false
-                                    toggleLectureRecording()
-                                }
-                            )
-                            HorizontalDivider()
-
-                            // Оформление листа
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Формат листа: ${state.pageFormat.title}")
-                                        Text("Книга, линии, клетка, крафт, винтаж", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showPageFormatDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Оцифровка и свой шрифт")
-                                        Text("Оцифровать почерк или загрузить TTF/OTF", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Gesture, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showFontDigitizerDialog = true
-                                }
-                            )
-                            HorizontalDivider()
-
-                            // Безопасность и организация
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(if (state.isPinned) "Открепить заметку" else "Закрепить вверху")
-                                        Text("Фиксация в начале списка заметок", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(if (state.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    viewModel.togglePin()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(if (state.reminderTime != null) "Изменить напоминание" else "Установить напоминание")
-                                        Text("Уведомление в заданный день и час", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(if (state.reminderTime != null) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Структурировать лекцию")
+                                            Text("Разбить текст на темы, списки и определения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoAwesome, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        val changed = viewModel.structureLectureContent()
+                                        if (changed) {
+                                            Toast.makeText(context, "Конспект лекции структурирован!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Текст уже структурирован или пуст", Toast.LENGTH_SHORT).show()
                                         }
                                     }
-                                    val calendar = Calendar.getInstance()
-                                    DatePickerDialog(context, { _, year, month, dayOfMonth ->
-                                        TimePickerDialog(context, { _, hourOfDay, minute ->
-                                            val reminderCal = Calendar.getInstance().apply {
-                                                set(year, month, dayOfMonth, hourOfDay, minute, 0)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Ключ Gemini API")
+                                            Text("Настройка ключа для распознавания текста и ИИ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Key, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showGeminiKeyDialog = true
+                                    }
+                                )
+                            } else if (activeTopSubMenu == "export") {
+                                // Submenu: Export & Document Formats
+                                DropdownMenuItem(
+                                    text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = { activeTopSubMenu = null }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Документ PDF (.pdf)", fontWeight = FontWeight.Bold)
+                                            Text("ГОСТ поля, шапка, красная строка, A4", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.PictureAsPdf, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showPdfExportDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Документ Word (.doc)", fontWeight = FontWeight.Bold)
+                                            Text("Официальное форматирование, шрифт Times, таблицы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Description, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        ShareExportUtil.shareAsDoc(context, state.toDomainNote())
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Таблица Excel (.xls)", fontWeight = FontWeight.Bold)
+                                            Text("Электронная таблица данных, чек-лист, сетка", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.TableChart, null, tint = MaterialTheme.colorScheme.tertiary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        ShareExportUtil.shareAsExcel(context, state.toDomainNote())
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Вставить шаблон документа")
+                                            Text("Заявления, акты, протоколы, записки по ГОСТ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoAwesome, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showTemplateDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Экспорт в Markdown (.md)")
+                                            Text("Для Obsidian, Notion, Typora, GitHub", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Code, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        ShareExportUtil.shareAsMarkdownFile(context, state.toDomainNote())
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Экспорт в TXT")
+                                            Text("Обычный текстовый файл", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.TextFields, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        ShareExportUtil.shareAsTxtFile(context, state.toDomainNote())
+                                    }
+                                )
+                            } else if (activeTopSubMenu == "audio") {
+                                // Submenu: Audio & Speech
+                                DropdownMenuItem(
+                                    text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = { activeTopSubMenu = null }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(if (lectureManager.isRecording) "Остановить запись звука" else "Непрерывная аудиозапись", fontWeight = FontWeight.Bold)
+                                            Text("Запись без прерываний и щелчков микрофона", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(if (lectureManager.isRecording) Icons.Filled.Stop else Icons.Filled.Mic, null, tint = if (lectureManager.isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        toggleLectureRecording(LectureTranscriptionManager.MODE_CONTINUOUS_AUDIO)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Потоковый голосовой ввод")
+                                            Text("Распознавание речи по фразам на лету", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        toggleLectureRecording(LectureTranscriptionManager.MODE_STREAMING_SPEECH)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(if (speechManager.isSpeaking) "Остановить чтение" else "Озвучить заметку вслух")
+                                            Text("Чтение текста через синтезатор речи (TTS)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(if (speechManager.isSpeaking) Icons.Filled.VolumeUp else Icons.Filled.VolumeMute, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        if (speechManager.isSpeaking) {
+                                            speechManager.stop()
+                                        } else {
+                                            val fullText = if (state.content.isNotBlank()) state.content else state.title
+                                            speechManager.speak(fullText, state.title)
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Качество восприятия звука")
+                                            Text("Настройка микрофона и словарь замены терминов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Tune, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showAudioPerceptionDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Настройки голоса")
+                                            Text("Выбор голоса диктора, тембр и скорость речи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.SettingsVoice, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showVoiceSettingsDialog = true
+                                    }
+                                )
+                            } else if (activeTopSubMenu == "style") {
+                                // Submenu: Style & Sheet Format
+                                DropdownMenuItem(
+                                    text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = { activeTopSubMenu = null }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Формат листа: ${state.pageFormat.title}")
+                                            Text("Книга, линии, клетка, крафт, винтаж", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showPageFormatDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Шрифт заметки")
+                                            Text("Печатный, рукописный, каллиграфический", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FontDownload, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showFontFamilyMenu = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Оцифровать свой почерк")
+                                            Text("По образцам букв или файлу TTF/OTF", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Gesture, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showFontDigitizerDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Цвет листа")
+                                            Text("Палитра пастельных и тёмных оттенков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Palette, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showColorPicker = !showColorPicker
+                                    }
+                                )
+                            } else if (activeTopSubMenu == "organize") {
+                                // Submenu: Organization & Security
+                                DropdownMenuItem(
+                                    text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = { activeTopSubMenu = null }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(if (state.isPinned) "Открепить заметку" else "Закрепить вверху")
+                                            Text("Фиксация в начале списка заметок", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(if (state.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        viewModel.togglePin()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(if (state.reminderTime != null) "Изменить напоминание" else "Установить напоминание")
+                                            Text("Уведомление в заданный день и час", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(if (state.reminderTime != null) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                             }
-                                            viewModel.onReminderChange(reminderCal.timeInMillis)
-                                        }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
-                                    }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(if (state.isLocked) "Снять защиту PIN-кодом" else "Защитить PIN-кодом")
-                                        Text(if (state.isLocked) "Заметка будет открываться без ввода PIN" else "Скрывать содержимое до ввода PIN", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(if (state.isLocked) Icons.Filled.LockOpen else Icons.Filled.Lock, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    if (!state.isLocked) {
-                                        if (!preferencesManager.hasCustomPinSetSync()) {
-                                            showPinSetupDialog = true
-                                        } else {
-                                            viewModel.toggleLock()
-                                            Toast.makeText(context, "Заметка защищена PIN-кодом", Toast.LENGTH_SHORT).show()
                                         }
-                                    } else {
-                                        if (preferencesManager.hasCustomPinSetSync()) {
-                                            showPinUnlockDialog = true
+                                        val calendar = Calendar.getInstance()
+                                        DatePickerDialog(context, { _, year, month, dayOfMonth ->
+                                            TimePickerDialog(context, { _, hourOfDay, minute ->
+                                                val reminderCal = Calendar.getInstance().apply {
+                                                    set(year, month, dayOfMonth, hourOfDay, minute, 0)
+                                                }
+                                                viewModel.onReminderChange(reminderCal.timeInMillis)
+                                            }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
+                                        }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Папка")
+                                            Text(if (state.folder != null) "Текущая: ${state.folder}" else "Назначить папку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Folder, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        folderInput = state.folder ?: ""
+                                        showFolderDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Теги")
+                                            Text("Быстрая фильтрация по меткам", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Label, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showTagDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(if (state.isLocked) "Снять защиту PIN-кодом" else "Защитить PIN-кодом")
+                                            Text(if (state.isLocked) "Заметка будет открываться свободно" else "Скрывать содержимое до ввода PIN", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(if (state.isLocked) Icons.Filled.LockOpen else Icons.Filled.Lock, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        if (!state.isLocked) {
+                                            if (!preferencesManager.hasCustomPinSetSync()) {
+                                                showPinSetupDialog = true
+                                            } else {
+                                                viewModel.toggleLock()
+                                                Toast.makeText(context, "Заметка защищена PIN-кодом", Toast.LENGTH_SHORT).show()
+                                            }
                                         } else {
-                                            viewModel.toggleLock()
+                                            if (preferencesManager.hasCustomPinSetSync()) {
+                                                showPinUnlockDialog = true
+                                            } else {
+                                                viewModel.toggleLock()
+                                            }
                                         }
                                     }
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Применить шаблон")
-                                        Text("Заполнить структуру (план, покупки, встреча)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(if (state.isArchived) "Вернуть из архива" else "Переместить в архив")
+                                            Text(if (state.isArchived) "Вернуть в общий список" else "Скрыть с главного экрана", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Archive, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        viewModel.toggleArchive { onBack() }
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.AutoAwesome, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showTemplateDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Информация о заметке")
-                                        Text("Статистика символов, дата изменения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Информация о заметке")
+                                            Text("Статистика символов, дата изменения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Info, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showInfoDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Info, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showInfoDialog = true
-                                }
-                            )
-                            HorizontalDivider()
-
-                            // Экспорт
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Экспорт и печать PDF")
-                                        Text("Многостраничный A4, тетрадь, нумерация, фото", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                            } else if (activeTopSubMenu == "study") {
+                                // Submenu: Study & Concentration
+                                DropdownMenuItem(
+                                    text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = { activeTopSubMenu = null }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Оглавление и разделы")
+                                            Text("Быстрый переход по заголовкам и таймкодам", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatListNumbered, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showTableOfContentsSheet = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.PictureAsPdf, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showPdfExportDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Экспорт в Markdown (.md)")
-                                        Text("Для Obsidian, Notion, Typora и GitHub", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Интервальные карточки")
+                                            Text("Режим активного запоминания понятий и вопросов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.School, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showFlashcardStudyDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Code, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    ShareExportUtil.shareAsMarkdownFile(context, state.toDomainNote())
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Экспорт в TXT")
-                                        Text("Сохранить как текстовый файл", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Интеллект-карта понятий")
+                                            Text("Интерактивный граф связей тем и определений", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Hub, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showMindMapDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Description, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    ShareExportUtil.shareAsTxtFile(context, state.toDomainNote())
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(if (state.isArchived) "Из архива" else "В архив")
-                                        Text(if (state.isArchived) "Вернуть в общий список" else "Скрыть с главного экрана", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Таймер учёбы (Помодоро)")
+                                            Text("Интервалы концентрации, фоновые звуки и дзен", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.HourglassBottom, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showFocusTimerDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Archive, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    viewModel.toggleArchive { onBack() }
-                                }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Ключ Gemini API", fontWeight = FontWeight.SemiBold)
-                                        Text("Настройка ключа для распознавания текста с фото", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Key, null, tint = MaterialTheme.colorScheme.primary) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showGeminiKeyDialog = true
-                                }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Удалить в корзину", color = MaterialTheme.colorScheme.error)
-                                        Text("Можно восстановить позже", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                                onClick = {
-                                    showTopMenu = false
-                                    viewModel.moveToTrash(context) { onBack() }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 },
@@ -1322,22 +1623,27 @@ fun NoteEditorScreen(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                    // 2. Нижняя строка действий
+                    // 2. Нижняя строка действий: Интуитивно сгруппированные меню
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
                             .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. ВСТАВКА (Insert Dropdown Menu)
+                        // 1. ВСТАВКА (Insert Menu)
                         Box {
-                            TooltipIconButton(
+                            FilledTonalButton(
                                 onClick = { showInsertMenu = true },
-                                icon = Icons.Filled.AddCircleOutline,
-                                tooltip = "Вставить медиа или список",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Filled.AddCircleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Вставка", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            }
                             DropdownMenu(
                                 expanded = showInsertMenu,
                                 onDismissRequest = { showInsertMenu = false }
@@ -1345,8 +1651,8 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Чек-лист задач")
-                                            Text("Создать список дел с галочками", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Чек-лист задач", fontWeight = FontWeight.SemiBold)
+                                            Text("Список дел с отметками выполнения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.CheckBox, null) },
@@ -1358,65 +1664,8 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Лекция: Звук в текст (Непрерывно)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                            Text("Запись длинных лекций без пауз и пропуска слов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Mic, null, tint = MaterialTheme.colorScheme.primary) },
-                                    onClick = {
-                                        showInsertMenu = false
-                                        toggleLectureRecording()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Структурировать конспект лекции")
-                                            Text("Разбить на темы, тезисы, списки и формулы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary) },
-                                    onClick = {
-                                        showInsertMenu = false
-                                        val changed = viewModel.structureLectureContent()
-                                        if (changed) {
-                                            Toast.makeText(context, "Конспект лекции структурирован!", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Текст уже структурирован или пуст", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Фото / Изображение")
-                                            Text("Прикрепить картинку из галереи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Image, null) },
-                                    onClick = {
-                                        showInsertMenu = false
-                                        imagePickerLauncher.launch("image/*")
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Оцифровать почерк по фото (.jpg)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                            Text("Загрузить фото листа алфавита для создания шрифта", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.AutoFixHigh, null, tint = MaterialTheme.colorScheme.primary) },
-                                    onClick = {
-                                        showInsertMenu = false
-                                        showFontDigitizerDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Множественное фото в текст", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                            Text("Серия страниц: распознать, объединить или структурировать через ИИ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Множественное фото в текст (ИИ)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Серия страниц документов или лекции", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.CollectionsBookmark, null, tint = MaterialTheme.colorScheme.primary) },
@@ -1447,8 +1696,21 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
+                                            Text("Фото / Изображение")
+                                            Text("Прикрепить картинку из галереи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Image, null) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        imagePickerLauncher.launch("image/*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
                                             Text("Одиночное фото (OCR)")
-                                            Text("Извлечь рукописный или печатный текст с одного фото", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Извлечь текст с одного фото", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.DocumentScanner, null) },
@@ -1461,7 +1723,7 @@ fun NoteEditorScreen(
                                     text = {
                                         Column {
                                             Text("Рисунок от руки")
-                                            Text("Холст для эскизов и схем", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Холст для эскизов, подписей и схем", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.Brush, null) },
@@ -1473,213 +1735,223 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Голосовая запись")
-                                            Text("Записать аудио на диктофон", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Вставить таблицу")
+                                            Text("Markdown сетка с колонками", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.Mic, null) },
+                                    leadingIcon = { Icon(Icons.Filled.TableChart, null) },
                                     onClick = {
                                         showInsertMenu = false
-                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                            showAudioDialog = true
-                                        } else {
-                                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                        }
+                                        showTableInsertDialog = true
                                     }
                                 )
                             }
                         }
 
-                        // МНОЖЕСТВЕННОЕ ФОТО В ТЕКСТ (Серия страниц)
-                        TooltipIconButton(
-                            onClick = { multiOcrImagePickerLauncher.launch("image/*") },
-                            icon = Icons.Filled.CollectionsBookmark,
-                            tooltip = "Множественное фото в текст (серия страниц)",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        // 2. ИИ ЭКСПЕРТ (AI Assistant & Document Intelligence)
+                        Button(
+                            onClick = { showAiExpertDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ИИ Эксперт", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
 
-                        // ВСТАВКА ДОКУМЕНТА (PDF, Word, TXT)
-                        TooltipIconButton(
-                            onClick = {
-                                documentPickerLauncher.launch(arrayOf(
-                                    "application/pdf",
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    "application/msword",
-                                    "text/*",
-                                    "*/*"
-                                ))
-                            },
-                            icon = Icons.Filled.Description,
-                            tooltip = "Вставить документ (PDF, DOCX, TXT)",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        // 2. ФОРМАТИРОВАНИЕ (Formatting Dropdown Menu)
+                        // 3. АУДИО (Audio & Speech Input Menu)
                         Box {
-                            TooltipIconButton(
-                                onClick = { showFormatMenu = true },
-                                icon = Icons.Filled.TextFormat,
-                                tooltip = "Форматирование текста",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            FilledTonalButton(
+                                onClick = { showAudioModeMenu = true },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                colors = if (lectureManager.isRecording) {
+                                    ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    )
+                                } else {
+                                    ButtonDefaults.filledTonalButtonColors()
+                                },
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (lectureManager.isRecording) Icons.Filled.FiberManualRecord else Icons.Filled.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (lectureManager.isRecording) "Идет запись..." else "Аудио",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                             DropdownMenu(
-                                expanded = showFormatMenu,
-                                onDismissRequest = { showFormatMenu = false }
+                                expanded = showAudioModeMenu,
+                                onDismissRequest = { showAudioModeMenu = false }
                             ) {
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Жирный текст (**)")
-                                            Text("Выделение важного", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(if (lectureManager.isRecording) "Остановить запись" else "🎙️ Непрерывная аудиозапись", fontWeight = FontWeight.Bold)
+                                            Text("Запись без прерываний микрофона и расшифровка ИИ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.FormatBold, null) },
+                                    leadingIcon = { Icon(Icons.Filled.Mic, null, tint = MaterialTheme.colorScheme.primary) },
                                     onClick = {
-                                        showFormatMenu = false
-                                        applyFormatting("**", "**")
+                                        showAudioModeMenu = false
+                                        toggleLectureRecording(LectureTranscriptionManager.MODE_CONTINUOUS_AUDIO)
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Курсивный текст (*)")
-                                            Text("Наклонный шрифт", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("🗣️ Потоковый голосовой ввод")
+                                            Text("Ввод фраз прямо в курсор на лету", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.FormatItalic, null) },
+                                    leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null) },
                                     onClick = {
-                                        showFormatMenu = false
-                                        applyFormatting("*", "*")
+                                        showAudioModeMenu = false
+                                        toggleLectureRecording(LectureTranscriptionManager.MODE_STREAMING_SPEECH)
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Подчёркивание (<u>)")
-                                            Text("Линия под текстом", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(if (speechManager.isSpeaking) "Остановить озвучку" else "🔊 Озвучить заметку вслух")
+                                            Text("Синтез речи (TTS) для проверки текста на слух", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.FormatUnderlined, null) },
+                                    leadingIcon = { Icon(Icons.Filled.VolumeUp, null) },
                                     onClick = {
-                                        showFormatMenu = false
-                                        applyFormatting("<u>", "</u>")
+                                        showAudioModeMenu = false
+                                        if (speechManager.isSpeaking) {
+                                            speechManager.stop()
+                                        } else {
+                                            val fullText = if (state.content.isNotBlank()) state.content else state.title
+                                            speechManager.speak(fullText, state.title)
+                                        }
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Зачёркивание (~~)")
-                                            Text("Зачёркнутый текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("⚙️ Качество восприятия звука")
+                                            Text("Настройка микрофона и словарь замены терминов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.FormatStrikethrough, null) },
+                                    leadingIcon = { Icon(Icons.Filled.Tune, null) },
                                     onClick = {
-                                        showFormatMenu = false
-                                        applyFormatting("~~", "~~")
+                                        showAudioModeMenu = false
+                                        showAudioPerceptionDialog = true
+                                    }
+                                )
+                            }
+                        }
+
+                        // 4. ШАБЛОНЫ ДОКУМЕНТОВ (Official Templates)
+                        FilledTonalButton(
+                            onClick = { showTemplateDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(Icons.Filled.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Шаблоны", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+
+                        // 5. ЭКСПОРТ (Export Menu: PDF, Word, Excel, Share)
+                        Box {
+                            FilledTonalButton(
+                                onClick = { showExportMenu = true },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Экспорт", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            }
+                            DropdownMenu(
+                                expanded = showExportMenu,
+                                onDismissRequest = { showExportMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Документ PDF (.pdf)", fontWeight = FontWeight.Bold)
+                                            Text("ГОСТ поля, шапка, печать A4", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.PictureAsPdf, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showExportMenu = false
+                                        showPdfExportDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Заголовок (# )")
-                                            Text("Крупный заголовок раздела", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Документ Word (.doc)", fontWeight = FontWeight.Bold)
+                                            Text("Официальное форматирование, Times New Roman, таблицы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.Title, null) },
+                                    leadingIcon = { Icon(Icons.Filled.Description, null, tint = MaterialTheme.colorScheme.primary) },
                                     onClick = {
-                                        showFormatMenu = false
-                                        applyFormatting("# ", "")
+                                        showExportMenu = false
+                                        ShareExportUtil.shareAsDoc(context, state.toDomainNote())
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Маркированный список (• )")
-                                            Text("Элемент перечисления", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Таблица Excel (.xls)", fontWeight = FontWeight.Bold)
+                                            Text("Электронная таблица данных и чек-лист", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, null) },
+                                    leadingIcon = { Icon(Icons.Filled.TableChart, null, tint = MaterialTheme.colorScheme.tertiary) },
                                     onClick = {
-                                        showFormatMenu = false
-                                        applyFormatting("• ", "")
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Цитата (> )")
-                                            Text("Блок цитирования", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.FormatQuote, null) },
-                                    onClick = {
-                                        showFormatMenu = false
-                                        applyFormatting("> ", "")
+                                        showExportMenu = false
+                                        ShareExportUtil.shareAsExcel(context, state.toDomainNote())
                                     }
                                 )
                                 HorizontalDivider()
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Сменить шрифт заметки")
-                                            Text("Печатный, рукописный, винтажный", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Поделиться текстом")
+                                            Text("Отправить в мессенджеры или почту", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Filled.FontDownload, null) },
+                                    leadingIcon = { Icon(Icons.Filled.Send, null) },
                                     onClick = {
-                                        showFormatMenu = false
-                                        showFontFamilyMenu = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Формат листа: ${state.pageFormat.title}")
-                                            Text("Книга, тетрадь в линейку или в клетку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
-                                    onClick = {
-                                        showFormatMenu = false
-                                        showPageFormatDialog = true
+                                        showExportMenu = false
+                                        showShareSheet = true
                                     }
                                 )
                             }
                         }
 
-                        // 3. ФОРМАТ ЛИСТА (Book / Ruled / Grid / Kraft / Vintage / etc.)
-                        TooltipIconButton(
-                            onClick = { showPageFormatDialog = true },
-                            icon = when (state.pageFormat) {
-                                PageFormat.BOOK -> Icons.Filled.AutoStories
-                                PageFormat.RULED -> Icons.Filled.FormatAlignJustify
-                                PageFormat.GRID -> Icons.Filled.BorderAll
-                                PageFormat.KRAFT -> Icons.Filled.Style
-                                PageFormat.VINTAGE -> Icons.Filled.Bookmark
-                                PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
-                                PageFormat.BLUEPRINT -> Icons.Filled.Edit
-                                PageFormat.BLANK -> Icons.Filled.Description
-                            },
-                            tooltip = "Формат листа: ${state.pageFormat.title}",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-
-                        // 4. ПАЛИТРА ЦВЕТОВ (Color Row Toggle)
-                        TooltipIconButton(
-                            onClick = { showColorPicker = !showColorPicker },
-                            icon = Icons.Filled.Palette,
-                            tooltip = "Цвет фона заметки",
-                            tint = if (showColorPicker) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        // 5. ОРГАНИЗАЦИЯ (Organize Dropdown Menu: Folder & Tags)
+                        // 6. ОРГАНИЗАЦИЯ (Organize Menu: Sheet format, color, folder, tags)
                         Box {
-                            TooltipIconButton(
+                            FilledTonalButton(
                                 onClick = { showOrganizeMenu = true },
-                                icon = Icons.Filled.FolderOpen,
-                                tooltip = "Папка и теги",
-                                tint = if (state.folder != null || state.tags.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Оформление", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            }
                             DropdownMenu(
                                 expanded = showOrganizeMenu,
                                 onDismissRequest = { showOrganizeMenu = false }
@@ -1687,7 +1959,33 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Папка")
+                                            Text("Формат листа: ${state.pageFormat.title}")
+                                            Text("Книга, линии, клетка, крафт, винтаж", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
+                                    onClick = {
+                                        showOrganizeMenu = false
+                                        showPageFormatDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Цвет фона заметки")
+                                            Text("Выбор цвета из палитры", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Palette, null) },
+                                    onClick = {
+                                        showOrganizeMenu = false
+                                        showColorPicker = !showColorPicker
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Папка заметки")
                                             Text(if (state.folder != null) "Текущая: ${state.folder}" else "Назначить папку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
@@ -1701,8 +1999,8 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Добавить тег")
-                                            Text("Теги для быстрой фильтрации", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Теги")
+                                            Text("Добавить метки для поиска", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.Label, null) },
@@ -1714,25 +2012,35 @@ fun NoteEditorScreen(
                             }
                         }
 
-                        // 6. ОТМЕНА (Undo)
-                        TooltipIconButton(
+                        // 7. ОТМЕНА (Undo)
+                        IconButton(
                             onClick = { viewModel.undo() },
-                            icon = Icons.AutoMirrored.Filled.Undo,
-                            tooltip = "Отменить ввод",
                             enabled = state.canUndo,
-                            tint = if (state.canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        )
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = "Отменить ввод",
+                                modifier = Modifier.size(18.dp),
+                                tint = if (state.canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            )
+                        }
 
-                        // 7. ПОВТОР (Redo)
-                        TooltipIconButton(
+                        // 8. ПОВТОР (Redo)
+                        IconButton(
                             onClick = { viewModel.redo() },
-                            icon = Icons.AutoMirrored.Filled.Redo,
-                            tooltip = "Повторить ввод",
                             enabled = state.canRedo,
-                            tint = if (state.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        )
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Redo,
+                                contentDescription = "Повторить ввод",
+                                modifier = Modifier.size(18.dp),
+                                tint = if (state.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            )
+                        }
 
-                        // 8. СОХРАНИТЬ (Quick Save)
+                        // 9. СОХРАНИТЬ (Quick Save)
                         FilledTonalButton(
                             onClick = {
                                 viewModel.saveNote(context) {
@@ -1740,11 +2048,11 @@ fun NoteEditorScreen(
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             modifier = Modifier.height(34.dp)
                         ) {
                             Icon(Icons.Filled.Save, contentDescription = "Сохранить", modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text("Сохранить", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -3200,6 +3508,20 @@ fun NoteEditorScreen(
                 Toast.makeText(context, "Защита PIN-кодом снята", Toast.LENGTH_SHORT).show()
             },
             onDismissRequest = { showPinUnlockDialog = false }
+        )
+    }
+
+    if (showAiExpertDialog) {
+        AiDocumentExpertDialog(
+            initialText = state.content,
+            onDismissRequest = { showAiExpertDialog = false },
+            onApplyText = { newText ->
+                contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                viewModel.onContentChange(newText)
+                viewModel.saveNote(context) {
+                    Toast.makeText(context, "Текст документа обновлен и сохранен!", Toast.LENGTH_SHORT).show()
+                }
+            }
         )
     }
 }

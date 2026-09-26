@@ -1016,4 +1016,417 @@ object ShareExportUtil {
             null
         }
     }
+
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;")
+    }
+
+    /**
+     * Generates a Microsoft Word compatible (.doc) document formatted according to official standards:
+     * - Right-aligned header block for applications/statements (Кому/От кого)
+     * - Centered uppercase bold title
+     * - Justified text alignment with standard 1.25cm first-line indents
+     * - 1.5 line spacing, Times New Roman, A4 page margins (left 30mm, right 15mm, top/bottom 20mm)
+     * - Structured tables with borders and styled checklist
+     */
+    fun buildWordDocHtml(note: Note): String {
+        val sb = StringBuilder()
+        val title = note.title.ifBlank { "Документ" }
+
+        sb.append("<!DOCTYPE html>\n")
+        sb.append("<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>\n")
+        sb.append("<head><meta charset='utf-8'>\n")
+        sb.append("<title>").append(escapeHtml(title)).append("</title>\n")
+        sb.append("<style>\n")
+        sb.append("@page WordSection1 { size: 595.3pt 841.9pt; margin: 20mm 15mm 20mm 30mm; mso-header-margin: 35.4pt; mso-footer-margin: 35.4pt; mso-paper-source: 0; }\n")
+        sb.append("div.WordSection1 { page: WordSection1; }\n")
+        sb.append("body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; color: #000000; }\n")
+        sb.append(".header-right { margin-left: 50%; text-align: left; margin-bottom: 24pt; line-height: 1.25; font-size: 12pt; }\n")
+        sb.append(".doc-title { text-align: center; font-weight: bold; font-size: 14pt; margin-top: 18pt; margin-bottom: 18pt; text-transform: uppercase; letter-spacing: 1.5pt; }\n")
+        sb.append("p.doc-p { text-align: justify; text-indent: 1.25cm; margin-top: 0; margin-bottom: 6pt; line-height: 1.5; font-size: 12pt; }\n")
+        sb.append("p.h2-title { font-weight: bold; font-size: 13pt; margin-top: 14pt; margin-bottom: 6pt; text-indent: 1.25cm; }\n")
+        sb.append("table.grid-table { width: 100%; border-collapse: collapse; margin: 12pt 0; }\n")
+        sb.append("table.grid-table th, table.grid-table td { border: 1px solid #000000; padding: 6pt; text-align: left; font-size: 11pt; }\n")
+        sb.append("table.grid-table th { background-color: #f2f2f2; font-weight: bold; text-align: center; }\n")
+        sb.append("table.footer-signatures { width: 100%; margin-top: 36pt; border: none; }\n")
+        sb.append("table.footer-signatures td { border: none; padding: 4pt; font-size: 12pt; }\n")
+        sb.append(".meta-bar { font-size: 9pt; color: #666666; margin-bottom: 18pt; border-bottom: 1px solid #cccccc; padding-bottom: 6pt; }\n")
+        sb.append("</style></head>\n")
+        sb.append("<body><div class='WordSection1'>\n")
+
+        // Metadata header
+        sb.append("<div class='meta-bar'>\n")
+        sb.append("Дата создания: ").append(escapeHtml(dateFormat.format(Date(note.createdAt))))
+        sb.append(" &bull; Обновлено: ").append(escapeHtml(dateFormat.format(Date(note.updatedAt))))
+        if (!note.folder.isNullOrBlank()) sb.append(" &bull; Папка: ").append(escapeHtml(note.folder))
+        if (note.tags.isNotEmpty()) sb.append(" &bull; Теги: ").append(escapeHtml(note.tags.joinToString(", ")))
+        sb.append("</div>\n")
+
+        val lines = note.content.lines()
+        val headerRightLines = mutableListOf<String>()
+        val bodyLines = mutableListOf<String>()
+        var foundMainTitle = false
+        var mainTitleText = if (note.title.isNotBlank()) note.title else ""
+
+        var inHeaderBlock = true
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (inHeaderBlock && (trimmed.startsWith("Кому:", ignoreCase = true) ||
+                        trimmed.startsWith("От кого:", ignoreCase = true) ||
+                        trimmed.startsWith("От:", ignoreCase = true) ||
+                        trimmed.startsWith("Директору", ignoreCase = true) ||
+                        trimmed.startsWith("Руководителю", ignoreCase = true) ||
+                        trimmed.startsWith("Ректору", ignoreCase = true) ||
+                        trimmed.startsWith("Генеральному", ignoreCase = true) ||
+                        trimmed.startsWith("Начальнику", ignoreCase = true))) {
+                headerRightLines.add(trimmed)
+            } else if (inHeaderBlock && headerRightLines.isNotEmpty() && trimmed.isBlank()) {
+                // blank line inside/after header
+            } else if (inHeaderBlock && (trimmed.equals("ЗАЯВЛЕНИЕ", ignoreCase = true) ||
+                        trimmed.equals("СЛУЖЕБНАЯ ЗАПИСКА", ignoreCase = true) ||
+                        trimmed.equals("АКТ", ignoreCase = true) ||
+                        trimmed.equals("ПРОТОКОЛ", ignoreCase = true) ||
+                        trimmed.equals("ОБЪЯСНИТЕЛЬНАЯ ЗАПИСКА", ignoreCase = true) ||
+                        trimmed.equals("ДОВЕРЕННОСТЬ", ignoreCase = true) ||
+                        trimmed.equals("ДОГОВОР", ignoreCase = true))) {
+                inHeaderBlock = false
+                foundMainTitle = true
+                mainTitleText = trimmed.uppercase()
+            } else {
+                inHeaderBlock = false
+                bodyLines.add(line)
+            }
+        }
+
+        // 1. Right header
+        if (headerRightLines.isNotEmpty()) {
+            sb.append("<div class='header-right'>\n")
+            for (hLine in headerRightLines) {
+                sb.append(escapeHtml(hLine)).append("<br/>\n")
+            }
+            sb.append("</div>\n")
+        }
+
+        // 2. Centered Title
+        if (mainTitleText.isNotBlank()) {
+            sb.append("<div class='doc-title'>").append(escapeHtml(mainTitleText)).append("</div>\n")
+        }
+
+        // 3. Body paragraphs & tables
+        var inTable = false
+        val tableRows = mutableListOf<List<String>>()
+
+        fun flushTable() {
+            if (tableRows.isNotEmpty()) {
+                sb.append("<table class='grid-table'>\n")
+                val headerRow = tableRows.first()
+                sb.append("<thead><tr>\n")
+                for (cell in headerRow) {
+                    sb.append("<th>").append(escapeHtml(cell)).append("</th>\n")
+                }
+                sb.append("</tr></thead>\n<tbody>\n")
+                for (rIndex in 1 until tableRows.size) {
+                    sb.append("<tr>\n")
+                    for (cell in tableRows[rIndex]) {
+                        sb.append("<td>").append(escapeHtml(cell)).append("</td>\n")
+                    }
+                    sb.append("</tr>\n")
+                }
+                sb.append("</tbody></table>\n")
+                tableRows.clear()
+            }
+            inTable = false
+        }
+
+        for (line in bodyLines) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+                if (trimmed.replace(Regex("[-| :]+"), "").isBlank()) {
+                    // Table separator row (|---|---|)
+                    continue
+                }
+                inTable = true
+                val cells = trimmed.split("|").map { it.trim() }.filterIndexed { idx, _ -> idx > 0 && idx < trimmed.split("|").lastIndex }
+                tableRows.add(cells)
+            } else {
+                if (inTable) {
+                    flushTable()
+                }
+                if (trimmed.startsWith("# ")) {
+                    sb.append("<div class='doc-title'>").append(escapeHtml(trimmed.removePrefix("# ").trim())).append("</div>\n")
+                } else if (trimmed.startsWith("## ")) {
+                    sb.append("<p class='h2-title'>").append(escapeHtml(trimmed.removePrefix("## ").trim())).append("</p>\n")
+                } else if (trimmed.startsWith("Дата:") || trimmed.contains("Подпись:")) {
+                    sb.append("<p class='doc-p' style='margin-top: 18pt;'><b>").append(escapeHtml(trimmed)).append("</b></p>\n")
+                } else if (trimmed.isNotBlank()) {
+                    sb.append("<p class='doc-p'>").append(escapeHtml(trimmed)).append("</p>\n")
+                }
+            }
+        }
+        if (inTable) {
+            flushTable()
+        }
+
+        // 4. Checklist if present
+        val checklist = parseChecklist(note.checkListJson)
+        if (checklist.isNotEmpty()) {
+            sb.append("<p class='h2-title'>Список задач и поручений:</p>\n")
+            sb.append("<table class='grid-table'>\n")
+            sb.append("<thead><tr><th style='width: 40px;'>№</th><th style='width: 80px;'>Статус</th><th>Задача</th></tr></thead>\n<tbody>\n")
+            checklist.forEachIndexed { idx, item ->
+                val statusText = if (item.isChecked) "✓ Выполнено" else "☐ К исполнению"
+                val statusColor = if (item.isChecked) "color: green;" else "color: #b45309;"
+                sb.append("<tr>\n")
+                sb.append("<td style='text-align: center;'>").append(idx + 1).append("</td>\n")
+                sb.append("<td style='").append(statusColor).append(" font-weight: bold;'>").append(escapeHtml(statusText)).append("</td>\n")
+                sb.append("<td>").append(escapeHtml(item.text)).append("</td>\n")
+                sb.append("</tr>\n")
+            }
+            sb.append("</tbody></table>\n")
+        }
+
+        // 5. Signatures footer table
+        sb.append("<table class='footer-signatures'>\n")
+        sb.append("<tr>\n")
+        sb.append("<td style='width: 50%; text-align: left;'>Дата: &laquo;___&raquo; __________ 202_ г.</td>\n")
+        sb.append("<td style='width: 50%; text-align: right;'>Подпись: ____________ / ____________ /</td>\n")
+        sb.append("</tr>\n")
+        sb.append("</table>\n")
+
+        sb.append("</div></body></html>")
+        return sb.toString()
+    }
+
+    /**
+     * Generates a Microsoft Excel compatible (.xls) spreadsheet with structured tables,
+     * note metadata, and task checklist representation.
+     */
+    fun buildExcelSpreadsheetHtml(note: Note): String {
+        val sb = StringBuilder()
+        val title = note.title.ifBlank { "Документ" }
+
+        sb.append("<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:x='urn:schemas-microsoft-com:office:excel' xmlns='http://www.w3.org/TR/REC-html40'>\n")
+        sb.append("<head><meta charset='utf-8'>\n")
+        sb.append("<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Заметка</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->\n")
+        sb.append("<style>\n")
+        sb.append("table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; margin-bottom: 20px; }\n")
+        sb.append("th { background-color: #1A56DB; color: #FFFFFF; font-weight: bold; border: 1px solid #94A3B8; padding: 6px 12px; text-align: left; }\n")
+        sb.append("td { border: 1px solid #CBD5E1; padding: 6px 12px; vertical-align: top; }\n")
+        sb.append(".title-card { font-size: 15pt; font-weight: bold; background-color: #DBEAFE; color: #1E3A8A; border: 1px solid #93C5FD; padding: 10px; }\n")
+        sb.append(".meta-header { background-color: #F1F5F9; font-weight: bold; width: 140px; color: #334155; }\n")
+        sb.append(".status-done { color: #047857; font-weight: bold; background-color: #ECFDF5; }\n")
+        sb.append(".status-todo { color: #B45309; font-weight: bold; background-color: #FFFBEB; }\n")
+        sb.append("</style></head>\n")
+        sb.append("<body>\n")
+
+        // 1. Note Metadata Card Table
+        sb.append("<table>\n")
+        sb.append("<tr><td colspan='2' class='title-card'>").append(escapeHtml(title)).append("</td></tr>\n")
+        sb.append("<tr><td class='meta-header'>Папка:</td><td>").append(escapeHtml(note.folder ?: "Без папки")).append("</td></tr>\n")
+        sb.append("<tr><td class='meta-header'>Создано:</td><td>").append(escapeHtml(dateFormat.format(Date(note.createdAt)))).append("</td></tr>\n")
+        sb.append("<tr><td class='meta-header'>Обновлено:</td><td>").append(escapeHtml(dateFormat.format(Date(note.updatedAt)))).append("</td></tr>\n")
+        if (note.tags.isNotEmpty()) {
+            sb.append("<tr><td class='meta-header'>Теги:</td><td>").append(escapeHtml(note.tags.joinToString(", "))).append("</td></tr>\n")
+        }
+        sb.append("</table><br/>\n")
+
+        // 2. Checklist Table if present
+        val checklist = parseChecklist(note.checkListJson)
+        if (checklist.isNotEmpty()) {
+            sb.append("<table>\n")
+            sb.append("<thead><tr>\n")
+            sb.append("<th style='width: 40px;'>№</th>\n")
+            sb.append("<th style='width: 140px;'>Статус</th>\n")
+            sb.append("<th style='width: 400px;'>Пункт / Задача</th>\n")
+            sb.append("</tr></thead>\n<tbody>\n")
+            checklist.forEachIndexed { idx, item ->
+                val statusText = if (item.isChecked) "Выполнено" else "К исполнению"
+                val statusClass = if (item.isChecked) "status-done" else "status-todo"
+                sb.append("<tr>\n")
+                sb.append("<td style='text-align: center;'>").append(idx + 1).append("</td>\n")
+                sb.append("<td class='").append(statusClass).append("'>").append(escapeHtml(statusText)).append("</td>\n")
+                sb.append("<td>").append(escapeHtml(item.text)).append("</td>\n")
+                sb.append("</tr>\n")
+            }
+            sb.append("</tbody></table><br/>\n")
+        }
+
+        // 3. Content Table (paragraphs or embedded markdown tables)
+        val contentLines = note.content.lines().filter { it.isNotBlank() }
+        val markdownTableRows = mutableListOf<List<String>>()
+        var inTable = false
+
+        fun flushMarkdownTable() {
+            if (markdownTableRows.isNotEmpty()) {
+                sb.append("<table>\n<thead><tr>\n")
+                val headerRow = markdownTableRows.first()
+                for (h in headerRow) {
+                    sb.append("<th>").append(escapeHtml(h)).append("</th>\n")
+                }
+                sb.append("</tr></thead>\n<tbody>\n")
+                for (rIndex in 1 until markdownTableRows.size) {
+                    sb.append("<tr>\n")
+                    for (cell in markdownTableRows[rIndex]) {
+                        sb.append("<td>").append(escapeHtml(cell)).append("</td>\n")
+                    }
+                    sb.append("</tr>\n")
+                }
+                sb.append("</tbody></table><br/>\n")
+                markdownTableRows.clear()
+            }
+            inTable = false
+        }
+
+        val regularParagraphs = mutableListOf<String>()
+        for (line in contentLines) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+                if (trimmed.replace(Regex("[-| :]+"), "").isBlank()) continue
+                inTable = true
+                val cells = trimmed.split("|").map { it.trim() }.filterIndexed { idx, _ -> idx > 0 && idx < trimmed.split("|").lastIndex }
+                markdownTableRows.add(cells)
+            } else {
+                if (inTable) flushMarkdownTable()
+                regularParagraphs.add(trimmed)
+            }
+        }
+        if (inTable) flushMarkdownTable()
+
+        if (regularParagraphs.isNotEmpty()) {
+            sb.append("<table>\n")
+            sb.append("<thead><tr><th style='width: 40px;'>№</th><th style='width: 500px;'>Содержание / Разделы документа</th></tr></thead>\n<tbody>\n")
+            regularParagraphs.forEachIndexed { idx, p ->
+                sb.append("<tr>\n")
+                sb.append("<td style='text-align: center; color: #64748B;'>").append(idx + 1).append("</td>\n")
+                sb.append("<td>").append(escapeHtml(p)).append("</td>\n")
+                sb.append("</tr>\n")
+            }
+            sb.append("</tbody></table>\n")
+        }
+
+        sb.append("</body></html>")
+        return sb.toString()
+    }
+
+    /**
+     * Generates a Microsoft Word (.doc) file in cache.
+     */
+    fun generateDocFile(context: Context, note: Note): File? {
+        return try {
+            val htmlContent = buildWordDocHtml(note)
+            val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
+            val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+            val file = File(exportDir, "${cleanTitle}.doc")
+            file.writeText(htmlContent, Charsets.UTF_8)
+            file
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Shares Word .doc document via Intent chooser.
+     */
+    fun shareAsDoc(context: Context, note: Note) {
+        try {
+            val docFile = generateDocFile(context, note) ?: run {
+                Toast.makeText(context, "Не удалось создать Word документ", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", docFile)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/msword"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, note.title.ifBlank { "Документ Word" })
+                putExtra(Intent.EXTRA_TEXT, "Документ Word (.doc): ${note.title.ifBlank { "Заметка" }}")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Экспорт в Word (.doc)"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Ошибка экспорта: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Saves Word .doc document to Downloads.
+     */
+    fun saveDocToDownloads(context: Context, note: Note): File? {
+        return try {
+            val docFile = generateDocFile(context, note) ?: return null
+            val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
+            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val targetFile = File(downloadsDir, "${cleanTitle}_${System.currentTimeMillis()}.doc")
+            docFile.copyTo(targetFile, overwrite = true)
+            Toast.makeText(context, "Сохранено в Word (.doc): ${targetFile.name}", Toast.LENGTH_LONG).show()
+            targetFile
+        } catch (e: Exception) {
+            Toast.makeText(context, "Файл готов во временном хранилище", Toast.LENGTH_SHORT).show()
+            null
+        }
+    }
+
+    /**
+     * Generates a Microsoft Excel (.xls) file in cache.
+     */
+    fun generateExcelFile(context: Context, note: Note): File? {
+        return try {
+            val htmlContent = buildExcelSpreadsheetHtml(note)
+            val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "table" }
+            val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+            val file = File(exportDir, "${cleanTitle}.xls")
+            file.writeText(htmlContent, Charsets.UTF_8)
+            file
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Shares Excel .xls spreadsheet via Intent chooser.
+     */
+    fun shareAsExcel(context: Context, note: Note) {
+        try {
+            val excelFile = generateExcelFile(context, note) ?: run {
+                Toast.makeText(context, "Не удалось создать Excel таблицу", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", excelFile)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.ms-excel"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, note.title.ifBlank { "Таблица Excel" })
+                putExtra(Intent.EXTRA_TEXT, "Таблица Excel (.xls): ${note.title.ifBlank { "Заметка" }}")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Экспорт в Excel (.xls)"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Ошибка экспорта в Excel: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Saves Excel .xls spreadsheet to Downloads.
+     */
+    fun saveExcelToDownloads(context: Context, note: Note): File? {
+        return try {
+            val excelFile = generateExcelFile(context, note) ?: return null
+            val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "table" }
+            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val targetFile = File(downloadsDir, "${cleanTitle}_${System.currentTimeMillis()}.xls")
+            excelFile.copyTo(targetFile, overwrite = true)
+            Toast.makeText(context, "Сохранено в Excel (.xls): ${targetFile.name}", Toast.LENGTH_LONG).show()
+            targetFile
+        } catch (e: Exception) {
+            Toast.makeText(context, "Файл готов во временном хранилище", Toast.LENGTH_SHORT).show()
+            null
+        }
+    }
 }

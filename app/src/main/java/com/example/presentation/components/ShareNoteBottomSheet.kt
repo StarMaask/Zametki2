@@ -78,6 +78,38 @@ fun ShareNoteBottomSheet(
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
             ShareOptionItem(
+                icon = Icons.Filled.PictureAsPdf,
+                title = "Документ PDF (.pdf)",
+                subtitle = "ГОСТ отступы, красная строка, шапка, печать A4",
+                badge = "PDF",
+                onClick = {
+                    showPdfDialog = true
+                }
+            )
+
+            ShareOptionItem(
+                icon = Icons.Filled.Description,
+                title = "Документ Word (.doc)",
+                subtitle = "Отступы 1.25 см, межстрочный 1.5, выравнивание по ширине, таблицы",
+                badge = "Word",
+                onClick = {
+                    onDismissRequest()
+                    ShareExportUtil.shareAsDoc(context, note)
+                }
+            )
+
+            ShareOptionItem(
+                icon = Icons.Filled.TableChart,
+                title = "Таблица Excel (.xls / .xlsx)",
+                subtitle = "Таблицы, задачи и метаданные по колонкам с сеткой",
+                badge = "Excel",
+                onClick = {
+                    onDismissRequest()
+                    ShareExportUtil.shareAsExcel(context, note)
+                }
+            )
+
+            ShareOptionItem(
                 icon = Icons.Filled.Send,
                 title = "Текст заметки",
                 subtitle = "Отправить текст в Telegram, WhatsApp, SMS, почту",
@@ -91,30 +123,10 @@ fun ShareNoteBottomSheet(
                 icon = Icons.Filled.PhotoLibrary,
                 title = "Листок блокнота (Картинка / Фото)",
                 subtitle = "Красивое фото страницы с оформлением, линиями и шрифтом",
-                badge = "Популярно",
+                badge = "Изображение",
                 onClick = {
                     onDismissRequest()
                     ShareExportUtil.shareAsNotebookSheet(context, note)
-                }
-            )
-
-            ShareOptionItem(
-                icon = Icons.Filled.PictureAsPdf,
-                title = "Печать и документ PDF (.pdf)",
-                subtitle = "Многостраничный A4, тетрадь, нумерация страниц и печать",
-                badge = "Новое",
-                onClick = {
-                    showPdfDialog = true
-                }
-            )
-
-            ShareOptionItem(
-                icon = Icons.Filled.Description,
-                title = "Текстовый файл (.txt)",
-                subtitle = "Файл документа для компьютера и текстовых редакторов",
-                onClick = {
-                    onDismissRequest()
-                    ShareExportUtil.shareAsTxtFile(context, note)
                 }
             )
 

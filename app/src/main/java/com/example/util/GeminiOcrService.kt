@@ -20,10 +20,28 @@ import kotlin.math.max
 object GeminiOcrService {
 
     private val OCR_MODELS = listOf(
-        "gemini-flash-lite-latest",
-        "gemini-3.5-flash-lite",
-        "gemini-3.8-flash",
-        "gemini-3.5-flash"
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-3.1-flash-lite-preview"
+    )
+
+    data class DocumentAnalysisResult(
+        val summary: String,
+        val documentType: String,
+        val hasRecipient: Boolean,
+        val hasApplicant: Boolean,
+        val hasTitle: Boolean,
+        val hasDate: Boolean,
+        val hasSignature: Boolean,
+        val detectedErrors: List<String>,
+        val formattingRecommendations: List<String>,
+        val correctedText: String
+    )
+
+    data class DocumentInterpretations(
+        val officialGost: String,
+        val diplomatic: String,
+        val concise: String
     )
 
     /**
@@ -555,5 +573,287 @@ object GeminiOcrService {
         originalBitmap.recycle()
 
         return Base64.encodeToString(byteArray, Base64.NO_WRAP)
+    }
+
+    /**
+     * Executes a pure text prompt request to Gemini models with fallback.
+     */
+    suspend fun executeTextPrompt(
+        context: Context,
+        prompt: String,
+        systemInstruction: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey(context)
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(Exception("API-ключ Gemini не найден. Укажите бесплатный ключ в настройках."))
+        }
+
+        var lastError = "Не удалось выполнить запрос к ИИ"
+        for (model in OCR_MODELS) {
+            val result = executeGeminiTextRequest(model, apiKey, prompt, systemInstruction)
+            if (result.isSuccess) {
+                return@withContext result
+            }
+            lastError = result.exceptionOrNull()?.localizedMessage ?: lastError
+        }
+        Result.failure(Exception(lastError))
+    }
+
+    private fun executeGeminiTextRequest(
+        modelName: String,
+        apiKey: String,
+        prompt: String,
+        systemInstruction: String?
+    ): Result<String> {
+        var connection: HttpURLConnection? = null
+        return try {
+            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+            val url = URL(urlString)
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connectTimeout = 30000
+                readTimeout = 45000
+                doOutput = true
+                doInput = true
+            }
+
+            val rootJson = JSONObject().apply {
+                if (!systemInstruction.isNullOrBlank()) {
+                    put("systemInstruction", JSONObject().apply {
+                        put("parts", JSONArray().put(JSONObject().apply {
+                            put("text", systemInstruction)
+                        }))
+                    })
+                }
+
+                val contents = JSONArray()
+                val contentObj = JSONObject()
+                val parts = JSONArray().put(JSONObject().apply {
+                    put("text", prompt)
+                })
+                contentObj.put("parts", parts)
+                contents.put(contentObj)
+                put("contents", contents)
+
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.2)
+                })
+            }
+
+            connection.outputStream.use { os ->
+                val bytes = rootJson.toString().toByteArray(Charsets.UTF_8)
+                os.write(bytes, 0, bytes.size)
+                os.flush()
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode in 200..299) {
+                val responseText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val parsedText = extractTextFromResponse(responseText)
+                if (parsedText.isNotBlank()) {
+                    Result.success(parsedText)
+                } else {
+                    Result.failure(Exception("ИИ вернул пустой ответ."))
+                }
+            } else {
+                val errorBody = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                val errorMessage = parseErrorMessage(errorBody, responseCode)
+                Result.failure(Exception(errorMessage))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Ошибка соединения: ${e.localizedMessage ?: "проверьте сеть"}"))
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    /**
+     * Analyzes document text: checks for mandatory requisites (recipient, applicant, title, date, signature),
+     * finds legal/grammatical errors, and generates an official, corrected version formatted to standards.
+     */
+    suspend fun analyzeDocument(
+        context: Context,
+        text: String
+    ): Result<DocumentAnalysisResult> = withContext(Dispatchers.IO) {
+        if (text.isBlank()) {
+            return@withContext Result.failure(Exception("Текст документа пуст для анализа."))
+        }
+
+        val prompt = """
+            Ты — главный эксперт по делопроизводству и стандарту ГОСТ Р 7.0.97-2016 (организационно-распорядительная документация).
+            Проанализируй следующий текст документа и верни ответ СТРОГО в формате JSON без каких-либо внешних символов markdown (без ```json):
+            {
+              "documentType": "Название типа документа (например: Заявление на отпуск, Служебная записка, Акт, Договор, Произвольный текст)",
+              "summary": "Краткая суть документа в 1-2 предложениях",
+              "hasRecipient": true/false (есть ли адресат: Кому, например: Директору ООО...),
+              "hasApplicant": true/false (есть ли заявитель: От кого, должность, ФИО),
+              "hasTitle": true/false (есть ли наименование: ЗАЯВЛЕНИЕ, АКТ и т.д.),
+              "hasDate": true/false (есть ли дата),
+              "hasSignature": true/false (есть ли указание на подпись),
+              "detectedErrors": ["список обнаруженных ошибок в оформлении, орфографии, пунктуации или юридических неточностей"],
+              "formattingRecommendations": ["конкретные рекомендации по оформлению по ГОСТ"],
+              "correctedText": "Полный исправленный и профессионально оформленный текст документа по всем правилам делопроизводства с шапкой, абзацами и реквизитами"
+            }
+
+            Текст для анализа:
+            $text
+        """.trimIndent()
+
+        val rawResult = executeTextPrompt(context, prompt)
+        if (rawResult.isFailure) {
+            return@withContext Result.failure(rawResult.exceptionOrNull() ?: Exception("Ошибка анализа"))
+        }
+
+        try {
+            val jsonStr = rawResult.getOrNull().orEmpty()
+                .trim()
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+
+            val json = JSONObject(jsonStr)
+            val detectedErrors = mutableListOf<String>()
+            val errorsArray = json.optJSONArray("detectedErrors")
+            if (errorsArray != null) {
+                for (i in 0 until errorsArray.length()) {
+                    detectedErrors.add(errorsArray.optString(i))
+                }
+            }
+
+            val formattingRecs = mutableListOf<String>()
+            val recsArray = json.optJSONArray("formattingRecommendations")
+            if (recsArray != null) {
+                for (i in 0 until recsArray.length()) {
+                    formattingRecs.add(recsArray.optString(i))
+                }
+            }
+
+            Result.success(
+                DocumentAnalysisResult(
+                    summary = json.optString("summary", "Документ проанализирован"),
+                    documentType = json.optString("documentType", "Деловой документ"),
+                    hasRecipient = json.optBoolean("hasRecipient", false),
+                    hasApplicant = json.optBoolean("hasApplicant", false),
+                    hasTitle = json.optBoolean("hasTitle", false),
+                    hasDate = json.optBoolean("hasDate", false),
+                    hasSignature = json.optBoolean("hasSignature", false),
+                    detectedErrors = detectedErrors,
+                    formattingRecommendations = formattingRecs,
+                    correctedText = json.optString("correctedText", text)
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(Exception("Не удалось распарсить ответ ИИ: ${e.localizedMessage}"))
+        }
+    }
+
+    /**
+     * Formats document according to Russian standards (ГОСТ):
+     * - Right-aligned header block (Кому/От кого)
+     * - Centered uppercase title
+     * - Justified body with paragraph indents
+     * - Date and signature block
+     */
+    suspend fun formatDocumentByGost(
+        context: Context,
+        text: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (text.isBlank()) return@withContext Result.failure(Exception("Текст пуст"))
+
+        val prompt = """
+            Оформи следующий текст строго по правилам российского делопроизводства и стандарта ГОСТ Р 7.0.97-2016.
+            Правила оформления:
+            1. Если это заявление, служебная записка или подобный документ, в самом начале сформируй правый блок реквизитов (Адресат «Кому...», Заявитель «От кого...»).
+            2. Наименование документа напиши ПО ЦЕНТРУ заглавными буквами (например: ЗАЯВЛЕНИЕ, СЛУЖЕБНАЯ ЗАПИСКА, АКТ).
+            3. Основной текст разбей на аккуратные абзацы с соблюдением делового стиля.
+            4. В конце обязательно добавь реквизиты даты (слева) и подписи с расшифровкой (справа).
+            5. Верни ТОЛЬКО отформатированный текст без вступительных фраз и без обрамления в ```.
+
+            Исходный текст:
+            $text
+        """.trimIndent()
+
+        executeTextPrompt(context, prompt)
+    }
+
+    /**
+     * Generates 3 distinct stylistic interpretations / treatments for a text:
+     * 1. Official/Legal (Строгий официально-деловой по ГОСТ)
+     * 2. Diplomatic (Дипломатичный, корректный и доброжелательный)
+     * 3. Concise (Лаконичный, убедительный, краткий)
+     */
+    suspend fun generateInterpretations(
+        context: Context,
+        text: String
+    ): Result<DocumentInterpretations> = withContext(Dispatchers.IO) {
+        if (text.isBlank()) return@withContext Result.failure(Exception("Текст пуст для трактовок"))
+
+        val prompt = """
+            Предложи 3 различные профессиональные трактовки / редакции следующего текста для различных ситуаций.
+            Верни ответ СТРОГО в формате JSON без ```json:
+            {
+              "officialGost": "Официально-деловая трактовка (строгий юридический стиль, терминология ГОСТ, для руководства, судов, госорганов)",
+              "diplomatic": "Дипломатичная и конструктивная трактовка (корпоративный вежливый стиль, акцент на взаимовыгоде и сотрудничестве)",
+              "concise": "Лаконичная и убедительная трактовка (кратко, чётко, только суть и факты, легко читается за 10 секунд)"
+            }
+
+            Исходный текст:
+            $text
+        """.trimIndent()
+
+        val rawResult = executeTextPrompt(context, prompt)
+        if (rawResult.isFailure) {
+            return@withContext Result.failure(rawResult.exceptionOrNull() ?: Exception("Ошибка запроса"))
+        }
+
+        try {
+            val jsonStr = rawResult.getOrNull().orEmpty()
+                .trim()
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+
+            val json = JSONObject(jsonStr)
+            Result.success(
+                DocumentInterpretations(
+                    officialGost = json.optString("officialGost", text),
+                    diplomatic = json.optString("diplomatic", text),
+                    concise = json.optString("concise", text)
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(Exception("Ошибка разбора трактовок: ${e.localizedMessage}"))
+        }
+    }
+
+    /**
+     * Extracts structured table data from an image/photo into clean Markdown table format.
+     */
+    suspend fun extractTableFromImage(
+        context: Context,
+        imageUri: Uri
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey(context)
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(Exception("API-ключ Gemini не найден."))
+        }
+
+        val base64Image = encodeImageToBase64(context, imageUri)
+            ?: return@withContext Result.failure(Exception("Не удалось загрузить изображение."))
+
+        val prompt = "Найди на изображении таблицу, бланк, квитанцию или список данных и преобразуй в чистую Markdown-таблицу (| колонка 1 | колонка 2 |). Точно сохрани все числа, даты и заголовки. Верни ТОЛЬКО markdown-таблицу без комментариев."
+
+        var lastError = "Не удалось извлечь таблицу"
+        for (model in OCR_MODELS) {
+            val result = executeGeminiRequest(model, apiKey, prompt, base64Image)
+            if (result.isSuccess) {
+                return@withContext result
+            }
+            lastError = result.exceptionOrNull()?.localizedMessage ?: lastError
+        }
+        Result.failure(Exception(lastError))
     }
 }
