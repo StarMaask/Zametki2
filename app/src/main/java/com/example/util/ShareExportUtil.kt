@@ -562,10 +562,13 @@ object ShareExportUtil {
                 strokeWidth = 1f
             }
 
+            // Check if document has official structure (ГОСТ Р 7.0.97-2016)
+            val docStructure = DocxGenerator.parseStructure(note)
+
             // Title element
             val titleText = if (note.title.isNotBlank()) note.title else "Без названия"
             val titleLayout = StaticLayout.Builder.obtain(titleText, 0, titleText.length, titlePaint, contentWidth)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setAlignment(if (docStructure.isOfficialDocument) Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL)
                 .build()
 
             // Metadata element
@@ -713,14 +716,35 @@ object ShareExportUtil {
                 // Start first page
                 startNewPage()
 
-                // Render Title on Page 1
+                if (docStructure.isOfficialDocument && docStructure.headerLines.isNotEmpty()) {
+                    // Render Right-Aligned Requisite Header Block (ГОСТ Р 7.0.97-2016)
+                    val headerLeft = marginLeft + contentWidth * 0.48f
+                    val headerWidth = (contentWidth * 0.52f).toInt()
+                    docStructure.headerLines.forEach { hLine ->
+                        val hLayout = StaticLayout.Builder.obtain(hLine, 0, hLine.length, bodyPaint, headerWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setLineSpacing(1.5f, 1.15f)
+                            .build()
+
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.save()
+                            activeCanvas?.translate(headerLeft, currentY)
+                            hLayout.draw(activeCanvas!!)
+                            activeCanvas?.restore()
+                        }
+                        currentY += hLayout.height + 3f
+                    }
+                    currentY += 14f
+                }
+
+                // Render Title on Page 1 (Centered for official documents)
                 if (!dryRun && activeCanvas != null) {
                     activeCanvas?.save()
                     activeCanvas?.translate(marginLeft, currentY)
                     titleLayout.draw(activeCanvas!!)
                     activeCanvas?.restore()
                 }
-                currentY += titleLayout.height + 8f
+                currentY += titleLayout.height + (if (docStructure.isOfficialDocument) 16f else 8f)
 
                 // Render Metadata on Page 1
                 if (metaLayout != null) {
@@ -765,7 +789,15 @@ object ShareExportUtil {
                 }
 
                 // Render Body Paragraphs with pagination line-wrapping
-                paragraphs.forEach { paragraph ->
+                val effectiveParagraphs = if (docStructure.isOfficialDocument && docStructure.bodyElements.isNotEmpty()) {
+                    docStructure.bodyElements.filterIsInstance<DocxGenerator.BodyElement.Paragraph>().map { p ->
+                        if (p.isHeading) p.text else "        ${p.text}"
+                    }
+                } else {
+                    paragraphs
+                }
+
+                effectiveParagraphs.forEach { paragraph ->
                     if (paragraph.isBlank()) {
                         currentY += 14f
                         if (currentY > usableBottomY) {
@@ -830,6 +862,37 @@ object ShareExportUtil {
                             currentY += 4f
                         }
                     }
+                }
+
+                // Render Signatures & Date footer for official documents
+                if (docStructure.isOfficialDocument && docStructure.footerLines.isNotEmpty()) {
+                    val dateText = docStructure.footerLines.firstOrNull { it.startsWith("Дата", ignoreCase = true) || it.startsWith("«___»") }
+                        ?: "Дата: «___» __________ 202_ г."
+                    val sigText = docStructure.footerLines.firstOrNull { it.contains("Подпись", ignoreCase = true) || it.contains("____________ /") }
+                        ?: "Подпись: ____________ / ____________ /"
+
+                    val dateLayout = StaticLayout.Builder.obtain(dateText, 0, dateText.length, bodyPaint, (contentWidth * 0.48f).toInt()).build()
+                    val sigLayout = StaticLayout.Builder.obtain(sigText, 0, sigText.length, bodyPaint, (contentWidth * 0.48f).toInt())
+                        .setAlignment(Layout.Alignment.ALIGN_OPPOSITE).build()
+
+                    val footerBlockH = maxOf(dateLayout.height, sigLayout.height) + 24f
+                    if (currentY + footerBlockH > usableBottomY) {
+                        startNewPage()
+                    }
+                    currentY += 24f
+
+                    if (!dryRun && activeCanvas != null) {
+                        activeCanvas?.save()
+                        activeCanvas?.translate(marginLeft, currentY)
+                        dateLayout.draw(activeCanvas!!)
+                        activeCanvas?.restore()
+
+                        activeCanvas?.save()
+                        activeCanvas?.translate(marginLeft + contentWidth * 0.52f, currentY)
+                        sigLayout.draw(activeCanvas!!)
+                        activeCanvas?.restore()
+                    }
+                    currentY += footerBlockH
                 }
 
                 // Render Attached Images / Sketches
@@ -1313,19 +1376,52 @@ object ShareExportUtil {
     }
 
     /**
-     * Generates a Microsoft Word (.doc) file in cache.
+     * Generates a modern Microsoft Word (.docx) file in cache using standard OpenXML.
+     * Complies strictly with Russian office paperwork standard ГОСТ Р 7.0.97-2016.
      */
-    fun generateDocFile(context: Context, note: Note): File? {
+    fun generateDocxFile(context: Context, note: Note): File? {
         return try {
-            val htmlContent = buildWordDocHtml(note)
-            val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
-            val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-            val file = File(exportDir, "${cleanTitle}.doc")
-            file.writeText(htmlContent, Charsets.UTF_8)
-            file
+            DocxGenerator.generateDocxFile(context, note)
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    /**
+     * Generates a Microsoft Word (.doc) file in cache using authentic RTF standard.
+     * Guaranteed to open cleanly in Microsoft Word, WordPad, and mobile office viewers without "damaged file" errors.
+     */
+    fun generateDocFile(context: Context, note: Note): File? {
+        return try {
+            DocxGenerator.generateRtfDocFile(context, note)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Shares Word .docx document via Intent chooser.
+     */
+    fun shareAsDocx(context: Context, note: Note) {
+        try {
+            val docxFile = generateDocxFile(context, note) ?: run {
+                Toast.makeText(context, "Не удалось создать Word (.docx) документ", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", docxFile)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, note.title.ifBlank { "Документ Word" })
+                putExtra(Intent.EXTRA_TEXT, "Документ Word (.docx): ${note.title.ifBlank { "Заметка" }}")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Экспорт в Word (.docx)"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Ошибка экспорта: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1335,7 +1431,7 @@ object ShareExportUtil {
     fun shareAsDoc(context: Context, note: Note) {
         try {
             val docFile = generateDocFile(context, note) ?: run {
-                Toast.makeText(context, "Не удалось создать Word документ", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Не удалось создать Word (.doc) документ", Toast.LENGTH_SHORT).show()
                 return
             }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", docFile)
@@ -1350,6 +1446,24 @@ object ShareExportUtil {
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(context, "Ошибка экспорта: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Saves Word .docx document to Downloads.
+     */
+    fun saveDocxToDownloads(context: Context, note: Note): File? {
+        return try {
+            val docxFile = generateDocxFile(context, note) ?: return null
+            val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
+            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val targetFile = File(downloadsDir, "${cleanTitle}_${System.currentTimeMillis()}.docx")
+            docxFile.copyTo(targetFile, overwrite = true)
+            Toast.makeText(context, "Сохранено в Word (.docx): ${targetFile.name}", Toast.LENGTH_LONG).show()
+            targetFile
+        } catch (e: Exception) {
+            Toast.makeText(context, "Файл готов во временном хранилище", Toast.LENGTH_SHORT).show()
+            null
         }
     }
 

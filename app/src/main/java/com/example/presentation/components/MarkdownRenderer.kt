@@ -21,6 +21,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -77,6 +78,105 @@ fun MarkdownRenderer(
                     RenderMarkdownTable(tableLines, textColor, fontFamily)
                 }
                 continue
+            }
+
+            // 1. Right Header Block for Official Documents (ГОСТ Р 7.0.97-2016)
+            if (lineIndex == 0 && (trimmed.startsWith("Кому:", ignoreCase = true) ||
+                        trimmed.startsWith("От кого:", ignoreCase = true) ||
+                        trimmed.startsWith("Директору", ignoreCase = true) ||
+                        trimmed.startsWith("Руководителю", ignoreCase = true) ||
+                        trimmed.startsWith("Генеральному", ignoreCase = true) ||
+                        trimmed.startsWith("Ректору", ignoreCase = true) ||
+                        trimmed.startsWith("Начальнику", ignoreCase = true))) {
+                val headerLines = mutableListOf<String>()
+                while (lineIndex < lines.size) {
+                    val cur = lines[lineIndex].trim()
+                    val upper = cur.uppercase().removePrefix("#").trim()
+                    if (upper == "ЗАЯВЛЕНИЕ" || upper == "СЛУЖЕБНАЯ ЗАПИСКА" || upper == "АКТ" ||
+                        upper == "ПРОТОКОЛ" || upper == "ОБЪЯСНИТЕЛЬНАЯ ЗАПИСКА" || upper == "ПРЕТЕНЗИЯ" ||
+                        (cur.startsWith("# ") && upper.length < 50)) {
+                        break
+                    }
+                    if (cur.isNotBlank()) {
+                        headerLines.add(cur)
+                    }
+                    lineIndex++
+                }
+                if (headerLines.isNotEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth(0.58f)
+                                .align(Alignment.TopEnd)
+                        ) {
+                            headerLines.forEach { hLine ->
+                                Text(
+                                    text = parseInlineMarkdown(hLine, textColor),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                    color = textColor,
+                                    fontFamily = fontFamily,
+                                    lineHeight = 17.sp
+                                )
+                            }
+                        }
+                    }
+                }
+                continue
+            }
+
+            // 2. Centered Official Title
+            val officialTitles = setOf("ЗАЯВЛЕНИЕ", "СЛУЖЕБНАЯ ЗАПИСКА", "ДОКЛАДНАЯ ЗАПИСКА", "ОБЪЯСНИТЕЛЬНАЯ ЗАПИСКА", "АКТ", "АКТ ПРИЁМА-ПЕРЕДАЧИ", "АКТ ПРИЕМА-ПЕРЕДАЧИ", "ПРОТОКОЛ", "ПРЕТЕНЗИЯ")
+            if (officialTitles.contains(trimmed.uppercase())) {
+                Text(
+                    text = trimmed.uppercase(),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontFamily = fontFamily,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
+                )
+                lineIndex++
+                continue
+            }
+
+            // 3. Official Signatures Footer (Date on left, Signature on right)
+            if (trimmed.startsWith("Дата:", ignoreCase = true) || trimmed.startsWith("«___»")) {
+                var nextSigLine: String? = null
+                var sigIndex = lineIndex + 1
+                while (sigIndex < lines.size) {
+                    val nextL = lines[sigIndex].trim()
+                    if (nextL.isNotBlank()) {
+                        if (nextL.contains("Подпись", ignoreCase = true) || nextL.contains("____________ /")) {
+                            nextSigLine = nextL
+                        }
+                        break
+                    }
+                    sigIndex++
+                }
+
+                if (nextSigLine != null) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = parseInlineMarkdown(trimmed, textColor),
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = textColor,
+                            fontFamily = fontFamily
+                        )
+                        Text(
+                            text = parseInlineMarkdown(nextSigLine, textColor),
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = textColor,
+                            fontFamily = fontFamily
+                        )
+                    }
+                    lineIndex = sigIndex + 1
+                    continue
+                }
             }
 
             when {

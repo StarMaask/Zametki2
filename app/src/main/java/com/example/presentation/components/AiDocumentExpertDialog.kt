@@ -18,10 +18,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.domain.model.Note
+import com.example.util.DocxGenerator
 import com.example.util.GeminiOcrService
 import kotlinx.coroutines.launch
 
@@ -528,17 +531,148 @@ private fun GostFormattingView(
 
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                .padding(14.dp)
+                .padding(16.dp)
         ) {
-            Text(
-                text = formattedText,
-                style = MaterialTheme.typography.bodyMedium,
-                lineHeight = 20.sp
-            )
+            val dummyNote = remember(formattedText) {
+                Note(
+                    id = 0,
+                    title = "",
+                    content = formattedText,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+            val structure = remember(dummyNote) {
+                DocxGenerator.parseStructure(dummyNote)
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 1. Right Header Block (Кому, От кого)
+                if (structure.headerLines.isNotEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth(0.58f)
+                                .align(Alignment.TopEnd)
+                        ) {
+                            structure.headerLines.forEach { hLine ->
+                                Text(
+                                    text = hLine,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                    lineHeight = 17.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(18.dp))
+                }
+
+                // 2. Centered Document Title
+                val title = structure.documentTitle ?: "ДОКУМЕНТ"
+                Text(
+                    text = title.uppercase(),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 3. Body paragraphs with 1.25 cm first line indent
+                structure.bodyElements.forEach { element ->
+                    when (element) {
+                        is DocxGenerator.BodyElement.Paragraph -> {
+                            if (element.isHeading) {
+                                Text(
+                                    text = element.text,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "        " + element.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.Justify,
+                                    lineHeight = 21.sp,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
+                        }
+                        is DocxGenerator.BodyElement.Table -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .padding(6.dp)
+                                ) {
+                                    element.headers.forEach { h ->
+                                        Text(
+                                            text = h,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                                element.rows.forEach { row ->
+                                    HorizontalDivider()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(6.dp)
+                                    ) {
+                                        row.forEach { c ->
+                                            Text(
+                                                text = c,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Date & Signature
+                if (structure.footerLines.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    val dateText = structure.footerLines.firstOrNull { it.startsWith("Дата", ignoreCase = true) || it.startsWith("«___»") }
+                        ?: "Дата: «___» __________ 202_ г."
+                    val sigText = structure.footerLines.firstOrNull { it.contains("Подпись", ignoreCase = true) || it.contains("____________ /") }
+                        ?: "Подпись: ____________ / ____________ /"
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = dateText,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = sigText,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
 
         Row(

@@ -80,7 +80,7 @@ fun ShareNoteBottomSheet(
             ShareOptionItem(
                 icon = Icons.Filled.PictureAsPdf,
                 title = "Документ PDF (.pdf)",
-                subtitle = "ГОСТ отступы, красная строка, шапка, печать A4",
+                subtitle = "ГОСТ Р 7.0.97-2016, шапка справа, центрированный заголовок, красная строка, печать A4",
                 badge = "PDF",
                 onClick = {
                     showPdfDialog = true
@@ -89,9 +89,20 @@ fun ShareNoteBottomSheet(
 
             ShareOptionItem(
                 icon = Icons.Filled.Description,
-                title = "Документ Word (.doc)",
-                subtitle = "Отступы 1.25 см, межстрочный 1.5, выравнивание по ширине, таблицы",
-                badge = "Word",
+                title = "Документ Word (.docx)",
+                subtitle = "Современный стандарт MS Word / Google Docs (ГОСТ, шапка справа, 1.25 см, 1.5 инт.)",
+                badge = "DOCX",
+                onClick = {
+                    onDismissRequest()
+                    ShareExportUtil.shareAsDocx(context, note)
+                }
+            )
+
+            ShareOptionItem(
+                icon = Icons.Filled.Article,
+                title = "Документ Word (.doc / RTF)",
+                subtitle = "Классический формат .doc (без ошибок повреждения, открывается в любых редакторах)",
+                badge = "DOC",
                 onClick = {
                     onDismissRequest()
                     ShareExportUtil.shareAsDoc(context, note)

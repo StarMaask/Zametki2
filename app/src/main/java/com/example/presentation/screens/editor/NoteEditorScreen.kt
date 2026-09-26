@@ -784,11 +784,25 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Документ Word (.doc)", fontWeight = FontWeight.Bold)
-                                            Text("Официальное форматирование, шрифт Times, таблицы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Документ Word (.docx)", fontWeight = FontWeight.Bold)
+                                            Text("ГОСТ Р 7.0.97-2016, шапка справа, 1.25 см, 1.5 инт., таблицы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.Description, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        ShareExportUtil.shareAsDocx(context, state.toDomainNote())
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Документ Word (.doc / RTF)", fontWeight = FontWeight.Bold)
+                                            Text("Совместимый формат .doc без ошибок повреждения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Article, null, tint = MaterialTheme.colorScheme.primary) },
                                     onClick = {
                                         showTopMenu = false
                                         activeTopSubMenu = null
@@ -1900,11 +1914,24 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
-                                            Text("Документ Word (.doc)", fontWeight = FontWeight.Bold)
-                                            Text("Официальное форматирование, Times New Roman, таблицы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Документ Word (.docx)", fontWeight = FontWeight.Bold)
+                                            Text("ГОСТ Р 7.0.97-2016, шапка справа, 1.25 см, 1.5 инт., таблицы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     },
                                     leadingIcon = { Icon(Icons.Filled.Description, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showExportMenu = false
+                                        ShareExportUtil.shareAsDocx(context, state.toDomainNote())
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Документ Word (.doc / RTF)", fontWeight = FontWeight.Bold)
+                                            Text("Совместимый формат .doc без ошибок повреждения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Article, null, tint = MaterialTheme.colorScheme.primary) },
                                     onClick = {
                                         showExportMenu = false
                                         ShareExportUtil.shareAsDoc(context, state.toDomainNote())
