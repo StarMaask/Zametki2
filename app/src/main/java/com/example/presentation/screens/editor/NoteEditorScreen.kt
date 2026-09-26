@@ -272,9 +272,16 @@ fun NoteEditorScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            val started = lectureManager.startRecording { chunk ->
-                appendRecognizedText(chunk)
-            }
+            val started = lectureManager.startRecording(
+                noteTitle = state.title.ifBlank { "Новая заметка" },
+                onError = { err ->
+                    Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                    startSpeechToTextAction()
+                },
+                onTextAppended = { chunk ->
+                    appendRecognizedText(chunk)
+                }
+            )
             if (!started) {
                 startSpeechToTextAction()
             }
@@ -299,6 +306,7 @@ fun NoteEditorScreen(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
                 putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 if (accuracyMode == "prefer_offline") {
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 }
@@ -319,20 +327,23 @@ fun NoteEditorScreen(
     fun toggleLectureRecording() {
         if (lectureManager.isRecording) {
             lectureManager.stopRecording()
+            Toast.makeText(context, "Распознавание речи завершено", Toast.LENGTH_SHORT).show()
         } else {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                val title = state.title.ifBlank { "Новая лекция" }
+                val title = state.title.ifBlank { "Новая заметка" }
                 val started = lectureManager.startRecording(
                     noteTitle = title,
-                    onAudioRecorded = { audioPath ->
-                        viewModel.onAudioUriChange(audioPath)
-                        Toast.makeText(context, "Аудиодорожка лекции сохранена и прикреплена!", Toast.LENGTH_SHORT).show()
+                    onError = { err ->
+                        Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                        startSpeechToText()
                     },
                     onTextAppended = { chunk ->
                         appendRecognizedText(chunk)
                     }
                 )
-                if (!started) {
+                if (started) {
+                    Toast.makeText(context, "🎙️ Слушаю речь... Говорите в микрофон", Toast.LENGTH_SHORT).show()
+                } else {
                     startSpeechToText()
                 }
             } else {

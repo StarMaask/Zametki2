@@ -2,7 +2,6 @@ package com.example.util
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -10,6 +9,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -19,14 +19,16 @@ import com.example.data.preferences.UserPreferencesManager
 import java.util.Locale
 
 /**
- * Manager for smooth, uninterrupted continuous speech-to-text transcription.
- * - Suppresses system audio chimes/beeps during listening sessions.
- * - Uses generous silence timeouts to prevent premature cutoffs.
- * - Selects best matching candidate and applies user word replacement dictionary.
- * - Supports custom recognition languages and online high accuracy vs offline modes.
- * - Resiliently recovers from audio hardware and recognizer timeouts without infinite error loops.
+ * Manager for continuous, stable speech-to-text transcription.
+ * - Captures speech seamlessly into notes with real-time partial feedback.
+ * - Formats text with smart punctuation and customizable word replacements.
+ * - Handles Android audio session lifecycle safely without mic conflicts or infinite crash loops.
  */
 class LectureTranscriptionManager(private val context: Context) {
+
+    companion object {
+        private const val TAG = "LectureTranscription"
+    }
 
     var isRecording by mutableStateOf(false)
         private set
@@ -49,18 +51,12 @@ class LectureTranscriptionManager(private val context: Context) {
     private val preferencesManager = UserPreferencesManager(context)
     private var speechRecognizer: SpeechRecognizer? = null
     private var onTextAppendedCallback: ((String) -> Unit)? = null
-    private var onAudioRecordedCallback: ((String) -> Unit)? = null
+    private var onErrorCallback: ((String) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var consecutiveErrors = 0
     private var lastPartialRaw = ""
     private var lastCommittedRaw = ""
     private var currentNoteTitle = "Новая лекция"
-
-    private var audioRecorder: android.media.MediaRecorder? = null
-    private var audioOutputFile: java.io.File? = null
-
-    // Sound muting state to silence the mic start/stop "beep/ding" audio signal
-    private var wasMuted = false
 
     private val timerRunnable = object : Runnable {
         override fun run() {
@@ -87,11 +83,13 @@ class LectureTranscriptionManager(private val context: Context) {
 
     private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
+            Log.d(TAG, "onReadyForSpeech")
             isListening = true
             consecutiveErrors = 0
         }
 
         override fun onBeginningOfSpeech() {
+            Log.d(TAG, "onBeginningOfSpeech")
             isListening = true
         }
 
@@ -102,14 +100,15 @@ class LectureTranscriptionManager(private val context: Context) {
         override fun onBufferReceived(buffer: ByteArray?) {}
 
         override fun onEndOfSpeech() {
+            Log.d(TAG, "onEndOfSpeech")
             isListening = false
         }
 
         override fun onError(error: Int) {
+            Log.w(TAG, "onError: code=$error")
             isListening = false
 
-            // CRITICAL FIX: Do NOT discard words spoken prior to pause or timeout!
-            // If the recognizer timed out while user was speaking, commit the partial hypothesis.
+            // If the recognizer timed out while user was speaking, commit the partial hypothesis
             val pendingHypothesis = lastPartialRaw.trim()
             if (pendingHypothesis.isNotBlank() && pendingHypothesis != lastCommittedRaw) {
                 val formatted = formatRecognizedChunk(pendingHypothesis)
@@ -125,6 +124,7 @@ class LectureTranscriptionManager(private val context: Context) {
 
             if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                 stopRecording()
+                onErrorCallback?.invoke("Требуется разрешение на использование микрофона")
                 return
             }
 
@@ -133,22 +133,40 @@ class LectureTranscriptionManager(private val context: Context) {
                     error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
 
             if (isNormalSilence) {
-                // Speaker simply paused or took a breath during the lecture.
-                // Do NOT destroy or recreate the recognizer; immediately resume listening with minimal 30ms gap!
+                // Speaker simply took a breath or paused.
+                // Cleanly restart after 350ms to let audio HAL complete cleanup
                 cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
-                mainHandler.postDelayed(restartRunnable, 30L)
+                mainHandler.postDelayed(restartRunnable, 350L)
             } else if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) {
-                // Recover swiftly from transient recognizer busy state
-                recreateRecognizerAndRestart(delayMs = 120L)
+                consecutiveErrors++
+                if (consecutiveErrors >= 3) {
+                    stopRecording()
+                    onErrorCallback?.invoke("Сервис распознавания речи занят. Попробуйте еще раз.")
+                } else {
+                    recreateRecognizerAndRestart(delayMs = 450L)
+                }
+            } else if (error == SpeechRecognizer.ERROR_AUDIO) {
+                consecutiveErrors++
+                if (consecutiveErrors >= 2) {
+                    stopRecording()
+                    onErrorCallback?.invoke("Микрофон временно недоступен или занят другим приложением")
+                } else {
+                    recreateRecognizerAndRestart(delayMs = 600L)
+                }
             } else {
                 consecutiveErrors++
-                val delay = if (consecutiveErrors > 3) 500L else 180L
-                recreateRecognizerAndRestart(delayMs = delay)
+                if (consecutiveErrors >= 4) {
+                    stopRecording()
+                    onErrorCallback?.invoke("Распознавание речи остановлено из-за сетевой или системной ошибки ($error)")
+                } else {
+                    recreateRecognizerAndRestart(delayMs = 600L)
+                }
             }
         }
 
         override fun onResults(results: Bundle?) {
+            Log.d(TAG, "onResults")
             isListening = false
             partialHypothesis = ""
             consecutiveErrors = 0
@@ -168,8 +186,8 @@ class LectureTranscriptionManager(private val context: Context) {
             if (isRecording && !isPaused) {
                 cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
-                // Minimal 30ms gap so the next sentence uttered by the lecturer is never missed!
-                mainHandler.postDelayed(restartRunnable, 30L)
+                // 350ms gap gives Android audio hardware time to finalize previous chunk
+                mainHandler.postDelayed(restartRunnable, 350L)
             }
         }
 
@@ -189,7 +207,7 @@ class LectureTranscriptionManager(private val context: Context) {
 
     fun startRecording(
         noteTitle: String = "Новая лекция",
-        onAudioRecorded: ((String) -> Unit)? = null,
+        onError: ((String) -> Unit)? = null,
         onTextAppended: (String) -> Unit
     ): Boolean {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -197,15 +215,13 @@ class LectureTranscriptionManager(private val context: Context) {
         }
 
         currentNoteTitle = noteTitle
-        onAudioRecordedCallback = onAudioRecorded
+        onErrorCallback = onError
         onTextAppendedCallback = onTextAppended
         durationSeconds = 0L
         partialHypothesis = ""
         isPaused = false
         isRecording = true
         consecutiveErrors = 0
-
-        muteSystemBeeps(true)
 
         // Connect Foreground Service notification callbacks
         com.example.service.LectureRecordingService.onServiceActionReceived = { action ->
@@ -215,10 +231,6 @@ class LectureTranscriptionManager(private val context: Context) {
             }
         }
         com.example.service.LectureRecordingService.start(context, noteTitle)
-
-        if (preferencesManager.isRecordAudioTrackSync()) {
-            startParallelAudioRecorder()
-        }
 
         mainHandler.removeCallbacks(timerRunnable)
         mainHandler.postDelayed(timerRunnable, 1000)
@@ -234,15 +246,7 @@ class LectureTranscriptionManager(private val context: Context) {
             partialHypothesis = ""
             isListening = false
             cleanCancel()
-            muteSystemBeeps(false)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                try { audioRecorder?.pause() } catch (_: Exception) {}
-            }
         } else {
-            muteSystemBeeps(true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                try { audioRecorder?.resume() } catch (_: Exception) {}
-            }
             safeStartListening()
         }
         com.example.service.LectureRecordingService.updateStatus(
@@ -263,21 +267,6 @@ class LectureTranscriptionManager(private val context: Context) {
         mainHandler.removeCallbacks(timerRunnable)
         mainHandler.removeCallbacks(restartRunnable)
 
-        muteSystemBeeps(false)
-
-        try {
-            audioRecorder?.stop()
-            audioRecorder?.release()
-        } catch (_: Exception) {}
-        audioRecorder = null
-
-        audioOutputFile?.let { file ->
-            if (file.exists() && file.length() > 0) {
-                onAudioRecordedCallback?.invoke(file.absolutePath)
-            }
-        }
-        audioOutputFile = null
-
         com.example.service.LectureRecordingService.stop(context)
 
         try {
@@ -288,41 +277,6 @@ class LectureTranscriptionManager(private val context: Context) {
         speechRecognizer = null
     }
 
-    private fun startParallelAudioRecorder() {
-        try {
-            val audioDir = java.io.File(context.filesDir, "lecture_audio").apply { mkdirs() }
-            val file = java.io.File(audioDir, "lecture_${System.currentTimeMillis()}.m4a")
-            audioOutputFile = file
-
-            val audioSourceProfile = preferencesManager.getAudioSourceProfileSync()
-            val audioSource = when (audioSourceProfile) {
-                "CAMCORDER" -> android.media.MediaRecorder.AudioSource.CAMCORDER
-                "MIC" -> android.media.MediaRecorder.AudioSource.MIC
-                else -> android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION
-            }
-
-            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                android.media.MediaRecorder(context)
-            } else {
-                @Suppress("DEPRECATION")
-                android.media.MediaRecorder()
-            }.apply {
-                setAudioSource(audioSource)
-                setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(128000)
-                setAudioSamplingRate(44100)
-                setOutputFile(file.absolutePath)
-                prepare()
-                start()
-            }
-            audioRecorder = recorder
-        } catch (_: Exception) {
-            audioOutputFile = null
-            audioRecorder = null
-        }
-    }
-
     private fun cleanCancel() {
         try {
             speechRecognizer?.cancel()
@@ -330,27 +284,23 @@ class LectureTranscriptionManager(private val context: Context) {
     }
 
     private fun createRecognizer(): SpeechRecognizer {
-        val accuracyMode = preferencesManager.getSpeechAccuracySync()
-        if (accuracyMode == "prefer_offline" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
-                    return SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-                }
-            } catch (_: Throwable) {}
-        }
         return SpeechRecognizer.createSpeechRecognizer(context)
     }
 
     private fun initAndListen() {
-        try {
-            cleanCancel()
-            speechRecognizer?.destroy()
-            speechRecognizer = createRecognizer()
-            speechRecognizer?.setRecognitionListener(recognitionListener)
-            safeStartListening()
-        } catch (_: Exception) {
-            isRecording = false
-            muteSystemBeeps(false)
+        mainHandler.post {
+            try {
+                cleanCancel()
+                speechRecognizer?.destroy()
+                speechRecognizer = createRecognizer().apply {
+                    setRecognitionListener(recognitionListener)
+                }
+                safeStartListening()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing recognizer", e)
+                isRecording = false
+                onErrorCallback?.invoke("Не удалось запустить распознаватель речи: ${e.message}")
+            }
         }
     }
 
@@ -365,12 +315,14 @@ class LectureTranscriptionManager(private val context: Context) {
                 speechRecognizer = null
 
                 try {
-                    speechRecognizer = createRecognizer()
-                    speechRecognizer?.setRecognitionListener(recognitionListener)
+                    speechRecognizer = createRecognizer().apply {
+                        setRecognitionListener(recognitionListener)
+                    }
                     safeStartListening()
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error recreating recognizer", e)
                     if (isRecording && !isPaused) {
-                        mainHandler.postDelayed({ recreateRecognizerAndRestart(500) }, 1000)
+                        mainHandler.postDelayed({ recreateRecognizerAndRestart(600) }, 800)
                     }
                 }
             }
@@ -381,7 +333,6 @@ class LectureTranscriptionManager(private val context: Context) {
         if (!isRecording || isPaused) return
         try {
             val selectedLang = preferencesManager.getSpeechLanguageSync()
-            val accuracyMode = preferencesManager.getSpeechAccuracySync()
             val langTag = if (selectedLang.isBlank() || selectedLang == "auto") {
                 Locale.getDefault().toLanguageTag()
             } else {
@@ -394,59 +345,13 @@ class LectureTranscriptionManager(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
                 putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-
-                if (accuracyMode == "prefer_offline") {
-                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                }
-
-                // Generous timeouts to capture continuous speech without interrupting the speaker:
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 900000L) // 15 minutes continuous session
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 7000L) // 7 sec complete silence before closing chunk
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 5000L) // 5 sec pause
-
-                // Enable modern speech formatting (numbers, punctuation, capitalization) and keep lecture vocabulary unmasked
-                putExtra("android.speech.extra.ENABLE_FORMATTING", true)
-                putExtra("android.speech.extra.MASK_OFFENSIVE_WORDS", false)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)
-                }
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             }
             speechRecognizer?.startListening(intent)
-        } catch (_: Exception) {
-            recreateRecognizerAndRestart(delayMs = 300)
-        }
-    }
-
-    private fun muteSystemBeeps(mute: Boolean) {
-        try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-            if (mute) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
-                    audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
-                } else {
-                    @Suppress("DEPRECATION")
-                    audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, true)
-                    @Suppress("DEPRECATION")
-                    audioManager.setStreamMute(AudioManager.STREAM_NOTIFICATION, true)
-                }
-                wasMuted = true
-            } else if (wasMuted) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
-                    audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
-                } else {
-                    @Suppress("DEPRECATION")
-                    audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, false)
-                    @Suppress("DEPRECATION")
-                    audioManager.setStreamMute(AudioManager.STREAM_NOTIFICATION, false)
-                }
-                wasMuted = false
-            }
-        } catch (_: Exception) {
-            // Silently ignore if ROM restricts audio stream adjustment
+        } catch (e: Exception) {
+            Log.e(TAG, "startListening error", e)
+            recreateRecognizerAndRestart(delayMs = 500)
         }
     }
 

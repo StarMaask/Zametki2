@@ -287,7 +287,7 @@ class UserPreferencesManager(private val context: Context) {
     fun isSmartPunctuationSync(): Boolean = syncPrefs.getBoolean("speech_smart_punctuation", true)
     fun isNoiseSuppressionSync(): Boolean = syncPrefs.getBoolean("speech_noise_suppression", true)
     fun isTimestampsInLectureSync(): Boolean = syncPrefs.getBoolean("lecture_timestamps", true)
-    fun isRecordAudioTrackSync(): Boolean = syncPrefs.getBoolean("lecture_record_audio_track", true)
+    fun isRecordAudioTrackSync(): Boolean = syncPrefs.getBoolean("lecture_record_audio_track", false)
     fun isBluetoothScoEnabledSync(): Boolean = syncPrefs.getBoolean("lecture_bluetooth_sco", false)
 
     val timestampsInLectureFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -295,7 +295,7 @@ class UserPreferencesManager(private val context: Context) {
     }
 
     val recordAudioTrackFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_RECORD_AUDIO_TRACK] ?: syncPrefs.getBoolean("lecture_record_audio_track", true)
+        prefs[KEY_RECORD_AUDIO_TRACK] ?: syncPrefs.getBoolean("lecture_record_audio_track", false)
     }
 
     val enableBluetoothScoFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->

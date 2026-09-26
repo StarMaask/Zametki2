@@ -178,6 +178,7 @@ fun AudioPerceptionSettingsDialog(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 if (currentAccuracy == "prefer_offline") {
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 }
