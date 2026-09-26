@@ -118,6 +118,8 @@ fun NoteEditorScreen(
 
     var showColorPicker by remember { mutableStateOf(false) }
     var showAudioDialog by remember { mutableStateOf(false) }
+    var showAudioModeMenu by remember { mutableStateOf(false) }
+    var pendingRecordingMode by remember { mutableStateOf<String?>(null) }
     var showDrawingDialog by remember { mutableStateOf(false) }
     var showTagDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
@@ -274,9 +276,12 @@ fun NoteEditorScreen(
         if (isGranted) {
             val started = lectureManager.startRecording(
                 noteTitle = state.title.ifBlank { "Новая заметка" },
+                mode = pendingRecordingMode,
                 onError = { err ->
                     Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
-                    startSpeechToTextAction()
+                },
+                onAudioSaved = { path ->
+                    viewModel.onAudioUriChange(path)
                 },
                 onTextAppended = { chunk ->
                     appendRecognizedText(chunk)
@@ -286,7 +291,7 @@ fun NoteEditorScreen(
                 startSpeechToTextAction()
             }
         } else {
-            Toast.makeText(context, "Требуется доступ к микрофону для распознавания речи", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Требуется доступ к микрофону для записи речи", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -324,25 +329,34 @@ fun NoteEditorScreen(
 
     startSpeechToTextAction = { startSpeechToText() }
 
-    fun toggleLectureRecording() {
-        if (lectureManager.isRecording) {
+    fun toggleLectureRecording(mode: String? = null) {
+        if (lectureManager.isRecording || lectureManager.isTranscribing) {
             lectureManager.stopRecording()
-            Toast.makeText(context, "Распознавание речи завершено", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Запись речи остановлена", Toast.LENGTH_SHORT).show()
         } else {
+            pendingRecordingMode = mode
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                 val title = state.title.ifBlank { "Новая заметка" }
                 val started = lectureManager.startRecording(
                     noteTitle = title,
+                    mode = mode,
                     onError = { err ->
                         Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
-                        startSpeechToText()
+                    },
+                    onAudioSaved = { path ->
+                        viewModel.onAudioUriChange(path)
                     },
                     onTextAppended = { chunk ->
                         appendRecognizedText(chunk)
                     }
                 )
                 if (started) {
-                    Toast.makeText(context, "🎙️ Слушаю речь... Говорите в микрофон", Toast.LENGTH_SHORT).show()
+                    val activeM = mode ?: preferencesManager.getLectureRecordingModeSync()
+                    if (activeM == LectureTranscriptionManager.MODE_CONTINUOUS_AUDIO) {
+                        Toast.makeText(context, "🎙️ Непрерывная запись звука начата. Микрофон не отключается!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "🎙️ Голосовой ввод активен... Говорите в микрофон", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     startSpeechToText()
                 }
@@ -1085,34 +1099,107 @@ fun NoteEditorScreen(
                             }
                         }
 
-                        // Звук в текст (Плавная непрерывная запись)
-                        FilledTonalButton(
-                            onClick = { toggleLectureRecording() },
-                            modifier = Modifier.height(34.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            colors = if (lectureManager.isRecording) {
-                                ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.error,
-                                    contentColor = MaterialTheme.colorScheme.onError
-                                )
-                            } else {
-                                ButtonDefaults.filledTonalButtonColors()
-                            }
-                        ) {
-                            Icon(
-                                imageVector = if (lectureManager.isRecording) Icons.Filled.FiberManualRecord else Icons.Filled.Mic,
-                                contentDescription = "Звук в текст",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (lectureManager.isRecording) {
-                                    if (lectureManager.isPaused) "Пауза" else "Запись..."
-                                } else {
-                                    "Звук в текст"
+                        // Звук в текст (Непрерывная запись / Голосовой ввод)
+                        Box {
+                            FilledTonalButton(
+                                onClick = {
+                                    if (lectureManager.isRecording || lectureManager.isTranscribing) {
+                                        lectureManager.stopRecording()
+                                    } else {
+                                        showAudioModeMenu = true
+                                    }
                                 },
-                                fontSize = 12.sp
-                            )
+                                modifier = Modifier.height(34.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                colors = if (lectureManager.isRecording) {
+                                    ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    )
+                                } else if (lectureManager.isTranscribing) {
+                                    ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiary,
+                                        contentColor = MaterialTheme.colorScheme.onTertiary
+                                    )
+                                } else {
+                                    ButtonDefaults.filledTonalButtonColors()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (lectureManager.isRecording) Icons.Filled.FiberManualRecord
+                                    else if (lectureManager.isTranscribing) Icons.Filled.AutoAwesome
+                                    else Icons.Filled.Mic,
+                                    contentDescription = "Запись речи",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (lectureManager.isRecording) {
+                                        if (lectureManager.isPaused) "Пауза" else "Запись..."
+                                    } else if (lectureManager.isTranscribing) {
+                                        "ИИ пишет..."
+                                    } else {
+                                        "Запись речи"
+                                    },
+                                    fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    imageVector = Icons.Filled.ArrowDropDown,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showAudioModeMenu,
+                                onDismissRequest = { showAudioModeMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🎙️ Непрерывная запись звука", fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "Без отключений микрофона и звуковых сигналов. Запись всего звука + расшифровка в текст",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Mic, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showAudioModeMenu = false
+                                        toggleLectureRecording(LectureTranscriptionManager.MODE_CONTINUOUS_AUDIO)
+                                    }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🗣️ Потоковый голосовой ввод")
+                                            Text(
+                                                "По фразам прямо в курсор заметки",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null) },
+                                    onClick = {
+                                        showAudioModeMenu = false
+                                        toggleLectureRecording(LectureTranscriptionManager.MODE_STREAMING_SPEECH)
+                                    }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("⚙️ Настройки микрофона и языка") },
+                                    leadingIcon = { Icon(Icons.Filled.Tune, null) },
+                                    onClick = {
+                                        showAudioModeMenu = false
+                                        showAudioPerceptionDialog = true
+                                    }
+                                )
+                            }
                         }
 
                         // Качество восприятия звука и словарь оцифровки
@@ -1878,15 +1965,17 @@ fun NoteEditorScreen(
                 }
             }
 
-            // Smooth Continuous Speech-to-Text Active Banner
-            if (lectureManager.isRecording) {
+            // Smooth Continuous Audio Recording & Speech-to-Text Active Banner
+            if (lectureManager.isRecording || lectureManager.isTranscribing) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 12.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (lectureManager.isPaused) {
+                        containerColor = if (lectureManager.isTranscribing) {
+                            MaterialTheme.colorScheme.tertiaryContainer
+                        } else if (lectureManager.isPaused) {
                             MaterialTheme.colorScheme.surfaceVariant
                         } else {
                             MaterialTheme.colorScheme.primaryContainer
@@ -1900,68 +1989,119 @@ fun NoteEditorScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Box(
                                     modifier = Modifier
                                         .size(10.dp)
                                         .clip(CircleShape)
                                         .background(
-                                            if (lectureManager.isPaused) MaterialTheme.colorScheme.outline
+                                            if (lectureManager.isTranscribing) MaterialTheme.colorScheme.tertiary
+                                            else if (lectureManager.isPaused) MaterialTheme.colorScheme.outline
                                             else MaterialTheme.colorScheme.error
                                         )
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
                                     Text(
-                                        text = "Звук в текст • ${lectureManager.formattedDuration()}",
+                                        text = if (lectureManager.isTranscribing) {
+                                            "Оцифровка в текст (ИИ)"
+                                        } else if (lectureManager.activeMode == LectureTranscriptionManager.MODE_CONTINUOUS_AUDIO) {
+                                            "Непрерывная запись • ${lectureManager.formattedDuration()}"
+                                        } else {
+                                            "Голосовой ввод • ${lectureManager.formattedDuration()}"
+                                        },
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (lectureManager.isPaused) MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (lectureManager.isTranscribing) MaterialTheme.colorScheme.onTertiaryContainer
+                                        else if (lectureManager.isPaused) MaterialTheme.colorScheme.onSurfaceVariant
                                         else MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Text(
-                                        text = if (lectureManager.isPaused) "Запись на паузе"
-                                        else if (lectureManager.isListening) "Слушаю речь..."
-                                        else "Ожидание голоса...",
+                                        text = if (lectureManager.isTranscribing) {
+                                            lectureManager.transcriptionProgress.ifBlank { "Расшифровка записи в текст заметки..." }
+                                        } else if (lectureManager.isPaused) {
+                                            "Запись на паузе"
+                                        } else if (lectureManager.activeMode == LectureTranscriptionManager.MODE_CONTINUOUS_AUDIO) {
+                                            "Микрофон активен непрерывно без отключений"
+                                        } else if (lectureManager.isListening) {
+                                            "Слушаю речь..."
+                                        } else {
+                                            "Ожидание голоса..."
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = if (lectureManager.isPaused) MaterialTheme.colorScheme.outline
+                                        color = if (lectureManager.isTranscribing) MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                                        else if (lectureManager.isPaused) MaterialTheme.colorScheme.outline
                                         else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                     )
                                 }
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                FilledTonalIconButton(
-                                    onClick = { showAudioPerceptionDialog = true },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Tune,
-                                        contentDescription = "Качество восприятия звука",
-                                        modifier = Modifier.size(18.dp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (!lectureManager.isTranscribing) {
+                                    FilledTonalIconButton(
+                                        onClick = { showAudioPerceptionDialog = true },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Tune,
+                                            contentDescription = "Качество восприятия звука",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    FilledTonalIconButton(
+                                        onClick = { lectureManager.togglePause() },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (lectureManager.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                                            contentDescription = if (lectureManager.isPaused) "Продолжить" else "Пауза",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { toggleLectureRecording() },
+                                        modifier = Modifier.height(36.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Готово", fontSize = 12.sp)
+                                    }
+                                } else {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.5.dp,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
                                     )
-                                }
-                                FilledTonalIconButton(
-                                    onClick = { lectureManager.togglePause() },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (lectureManager.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-                                        contentDescription = if (lectureManager.isPaused) "Продолжить" else "Пауза",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Button(
-                                    onClick = { toggleLectureRecording() },
-                                    modifier = Modifier.height(36.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                ) {
-                                    Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Готово", fontSize = 12.sp)
                                 }
                             }
                         }
+
+                        // Live audio volume / amplitude meter
+                        if (lectureManager.isRecording && !lectureManager.isPaused) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.GraphicEq,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { lectureManager.currentAmplitude.coerceIn(0.04f, 1f) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
                         if (lectureManager.partialHypothesis.isNotBlank()) {
                             Spacer(modifier = Modifier.height(10.dp))
                             Surface(
@@ -2092,6 +2232,9 @@ fun NoteEditorScreen(
                     onDelete = { viewModel.onAudioUriChange(null) },
                     onInsertTimestamp = { tag ->
                         appendRecognizedText(tag)
+                    },
+                    onTranscribeRequested = { transcribedText ->
+                        appendRecognizedText(transcribedText)
                     }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -2698,6 +2841,9 @@ fun NoteEditorScreen(
             onRecordingFinished = { path ->
                 viewModel.onAudioUriChange(path)
                 showAudioDialog = false
+            },
+            onTextTranscribed = { text ->
+                appendRecognizedText(text)
             }
         )
     }

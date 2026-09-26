@@ -64,6 +64,7 @@ fun AudioPerceptionSettingsDialog(
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Perception & Mic, 1: Vocabulary, 2: Test
 
+    val currentRecordingMode by preferencesManager.lectureRecordingModeFlow.collectAsState(initial = preferencesManager.getLectureRecordingModeSync())
     val currentLang by preferencesManager.speechLanguageFlow.collectAsState(initial = preferencesManager.getSpeechLanguageSync())
     val currentAccuracy by preferencesManager.speechAccuracyFlow.collectAsState(initial = preferencesManager.getSpeechAccuracySync())
     val currentAudioSource by preferencesManager.audioSourceProfileFlow.collectAsState(initial = preferencesManager.getAudioSourceProfileSync())
@@ -273,6 +274,59 @@ fun AudioPerceptionSettingsDialog(
                     when (selectedTab) {
                         0 -> {
                             // TAB 0: PERCEPTION & MIC PROFILE
+                            // Primary Recording Mode
+                            Text(
+                                text = "Основной режим записи",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { scope.launch { preferencesManager.setLectureRecordingMode("continuous_audio") } }
+                                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = currentRecordingMode == "continuous_audio",
+                                            onClick = { scope.launch { preferencesManager.setLectureRecordingMode("continuous_audio") } }
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text("🎙️ Непрерывная аудиозапись (диктофон + текст)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text("Микрофон включен постоянно без пауз и звуковых сигналов. Записывает всю речь и расшифровывает в текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { scope.launch { preferencesManager.setLectureRecordingMode("streaming_speech") } }
+                                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = currentRecordingMode == "streaming_speech",
+                                            onClick = { scope.launch { preferencesManager.setLectureRecordingMode("streaming_speech") } }
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text("🗣️ Потоковый голосовой ввод", fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                            Text("По фразам прямо в курсор заметки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
                             // Language Selection
                             Text(
                                 text = "Язык распознавания речи",

@@ -289,6 +289,7 @@ class UserPreferencesManager(private val context: Context) {
     fun isTimestampsInLectureSync(): Boolean = syncPrefs.getBoolean("lecture_timestamps", true)
     fun isRecordAudioTrackSync(): Boolean = syncPrefs.getBoolean("lecture_record_audio_track", false)
     fun isBluetoothScoEnabledSync(): Boolean = syncPrefs.getBoolean("lecture_bluetooth_sco", false)
+    fun getLectureRecordingModeSync(): String = syncPrefs.getString("lecture_recording_mode", "continuous_audio") ?: "continuous_audio"
 
     val timestampsInLectureFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[KEY_TIMESTAMPS_IN_LECTURE] ?: syncPrefs.getBoolean("lecture_timestamps", true)
@@ -300,6 +301,14 @@ class UserPreferencesManager(private val context: Context) {
 
     val enableBluetoothScoFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[KEY_ENABLE_BLUETOOTH_SCO] ?: syncPrefs.getBoolean("lecture_bluetooth_sco", false)
+    }
+
+    val lectureRecordingModeFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        syncPrefs.getString("lecture_recording_mode", "continuous_audio") ?: "continuous_audio"
+    }
+
+    suspend fun setLectureRecordingMode(mode: String) {
+        syncPrefs.edit().putString("lecture_recording_mode", mode).apply()
     }
 
     suspend fun setTimestampsInLecture(enabled: Boolean) {

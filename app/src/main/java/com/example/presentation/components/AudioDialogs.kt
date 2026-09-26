@@ -23,19 +23,25 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.example.data.preferences.UserPreferencesManager
+import com.example.util.GeminiOcrService
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 
 @Composable
 fun AudioRecordDialog(
     onDismiss: () -> Unit,
-    onRecordingFinished: (String) -> Unit
+    onRecordingFinished: (String) -> Unit,
+    onTextTranscribed: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val preferencesManager = remember { UserPreferencesManager(context) }
     var isRecording by remember { mutableStateOf(false) }
+    var isTranscribing by remember { mutableStateOf(false) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var outputFile by remember { mutableStateOf<File?>(null) }
     var recordDurationSeconds by remember { mutableIntStateOf(0) }
@@ -174,33 +180,88 @@ fun AudioRecordDialog(
                     Text("Старт")
                 }
             } else {
-                Button(
-                    onClick = {
-                        try {
-                            mediaRecorder?.stop()
-                            mediaRecorder?.release()
-                            mediaRecorder = null
-                            isRecording = false
-                            outputFile?.let { onRecordingFinished(it.absolutePath) }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            onDismiss()
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                mediaRecorder?.stop()
+                                mediaRecorder?.release()
+                                mediaRecorder = null
+                                isRecording = false
+                                outputFile?.let { onRecordingFinished(it.absolutePath) }
+                                onDismiss()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                onDismiss()
+                            }
+                        },
+                        enabled = !isTranscribing
+                    ) {
+                        Text("Сохранить звук")
+                    }
+
+                    if (onTextTranscribed != null) {
+                        Button(
+                            onClick = {
+                                try {
+                                    mediaRecorder?.stop()
+                                    mediaRecorder?.release()
+                                    mediaRecorder = null
+                                    isRecording = false
+                                    val savedFile = outputFile
+                                    if (savedFile != null && savedFile.exists()) {
+                                        onRecordingFinished(savedFile.absolutePath)
+                                        isTranscribing = true
+                                        Toast.makeText(context, "ИИ расшифровывает непрерывную запись...", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            val result = GeminiOcrService.transcribeAudioWithGemini(context, savedFile)
+                                            isTranscribing = false
+                                            if (result.isSuccess) {
+                                                val text = result.getOrNull() ?: ""
+                                                onTextTranscribed(text)
+                                                Toast.makeText(context, "Речь расшифрована в заметку!", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка ИИ"
+                                                Toast.makeText(context, "Аудио сохранено, ошибка ИИ: $err", Toast.LENGTH_LONG).show()
+                                            }
+                                            onDismiss()
+                                        }
+                                    } else {
+                                        onDismiss()
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    onDismiss()
+                                }
+                            },
+                            enabled = !isTranscribing,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            if (isTranscribing) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("ИИ пишет...")
+                            } else {
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("В текст (ИИ)")
+                            }
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Стоп и сохранить")
+                    }
                 }
             }
         },
         dismissButton = {
-            TextButton(onClick = {
-                if (isRecording) {
-                    try { mediaRecorder?.stop() } catch (_: Exception) {}
-                    mediaRecorder?.release()
-                }
-                onDismiss()
-            }) {
+            TextButton(
+                onClick = {
+                    if (isRecording) {
+                        try { mediaRecorder?.stop() } catch (_: Exception) {}
+                        mediaRecorder?.release()
+                    }
+                    onDismiss()
+                },
+                enabled = !isTranscribing
+            ) {
                 Text("Отмена")
             }
         }
@@ -212,7 +273,8 @@ fun AudioPlaybackCard(
     audioUri: String,
     noteContent: String = "",
     onDelete: () -> Unit,
-    onInsertTimestamp: ((String) -> Unit)? = null
+    onInsertTimestamp: ((String) -> Unit)? = null,
+    onTranscribeRequested: ((String) -> Unit)? = null
 ) {
     var isPlaying by remember { mutableStateOf(false) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
@@ -515,6 +577,56 @@ fun AudioPlaybackCard(
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         )
+                    }
+                }
+            }
+
+            if (onTranscribeRequested != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                var isTranscribingAudio by remember { mutableStateOf(false) }
+                val cardContext = LocalContext.current
+                val coroutineScope = rememberCoroutineScope()
+
+                Button(
+                    onClick = {
+                        if (isTranscribingAudio) return@Button
+                        isTranscribingAudio = true
+                        coroutineScope.launch {
+                            val file = java.io.File(audioUri)
+                            if (file.exists() && file.length() > 0L) {
+                                val result = com.example.util.GeminiOcrService.transcribeAudioWithGemini(cardContext, file)
+                                if (result.isSuccess) {
+                                    val text = result.getOrNull().orEmpty()
+                                    if (text.isNotBlank()) {
+                                        onTranscribeRequested.invoke(text)
+                                        Toast.makeText(cardContext, "Аудиозапись успешно оцифрована в текст!", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка распознавания"
+                                    Toast.makeText(cardContext, err, Toast.LENGTH_LONG).show()
+                                }
+                            } else {
+                                Toast.makeText(cardContext, "Файл аудиозаписи не найден", Toast.LENGTH_SHORT).show()
+                            }
+                            isTranscribingAudio = false
+                        }
+                    },
+                    enabled = !isTranscribingAudio,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                ) {
+                    if (isTranscribingAudio) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onTertiary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("ИИ расшифровывает запись в текст...", fontSize = 13.sp)
+                    } else {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Расшифровать запись в текст (ИИ)", fontSize = 13.sp)
                     }
                 }
             }

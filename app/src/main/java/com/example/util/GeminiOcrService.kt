@@ -389,6 +389,137 @@ object GeminiOcrService {
         }
     }
 
+    /**
+     * Transcribes an audio recording (lecture, meeting, monologue) into clean, structured text using Gemini AI.
+     */
+    suspend fun transcribeAudioWithGemini(
+        context: Context,
+        audioFile: java.io.File,
+        customApiKey: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val apiKey = customApiKey?.trim()?.takeIf { it.isNotBlank() }
+            ?: getEffectiveApiKey(context)
+
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(
+                IllegalStateException("API-ключ Gemini не найден. Укажите бесплатный ключ в настройках приложения.")
+            )
+        }
+
+        if (!audioFile.exists() || audioFile.length() == 0L) {
+            return@withContext Result.failure(Exception("Аудиофайл пуст или не найден."))
+        }
+
+        val base64Audio = try {
+            val bytes = audioFile.readBytes()
+            Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            return@withContext Result.failure(Exception("Не удалось прочитать аудиозапись: ${e.localizedMessage}"))
+        }
+
+        val prompt = "Ты — профессиональная система расшифровки аудио в текст (Speech-to-Text) для русского языка.\n" +
+                "Расшифруй предоставленную аудиозапись полностью и точно.\n" +
+                "Правила:\n" +
+                "1. Точно передай все сказанные слова, мысли, термины и числовые данные.\n" +
+                "2. Расставь правильную пунктуацию, заглавные буквы и разбей речь на логические абзацы.\n" +
+                "3. Убери слова-паразиты и заикания, если они мешают восприятию смысла.\n" +
+                "4. Верни ТОЛЬКО расшифрованный текст заметки без вступительных фраз или обрамления в ```."
+
+        val mimeType = when {
+            audioFile.name.endsWith(".m4a", ignoreCase = true) -> "audio/mp4"
+            audioFile.name.endsWith(".mp3", ignoreCase = true) -> "audio/mp3"
+            audioFile.name.endsWith(".wav", ignoreCase = true) -> "audio/wav"
+            else -> "audio/mp4"
+        }
+
+        var lastError = "Не удалось расшифровать аудиозапись через ИИ"
+        for (model in OCR_MODELS) {
+            val result = executeGeminiAudioRequest(model, apiKey, prompt, base64Audio, mimeType)
+            if (result.isSuccess) {
+                return@withContext result
+            }
+            lastError = result.exceptionOrNull()?.localizedMessage ?: lastError
+        }
+
+        Result.failure(Exception(lastError))
+    }
+
+    private fun executeGeminiAudioRequest(
+        modelName: String,
+        apiKey: String,
+        prompt: String,
+        base64Audio: String,
+        mimeType: String
+    ): Result<String> {
+        var connection: HttpURLConnection? = null
+        return try {
+            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+            val url = URL(urlString)
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connectTimeout = 45000
+                readTimeout = 60000
+                doOutput = true
+                doInput = true
+            }
+
+            val rootJson = JSONObject().apply {
+                val contents = JSONArray()
+                val contentObj = JSONObject()
+                val parts = JSONArray()
+
+                // Prompt
+                parts.put(JSONObject().apply {
+                    put("text", prompt)
+                })
+
+                // Audio part
+                parts.put(JSONObject().apply {
+                    val inlineData = JSONObject().apply {
+                        put("mimeType", mimeType)
+                        put("data", base64Audio)
+                    }
+                    put("inlineData", inlineData)
+                })
+
+                contentObj.put("parts", parts)
+                contents.put(contentObj)
+                put("contents", contents)
+
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.1)
+                })
+            }
+
+            connection.outputStream.use { os ->
+                val inputBytes = rootJson.toString().toByteArray(Charsets.UTF_8)
+                os.write(inputBytes, 0, inputBytes.size)
+                os.flush()
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode in 200..299) {
+                val responseText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val parsedText = extractTextFromResponse(responseText)
+                if (parsedText.isNotBlank()) {
+                    Result.success(parsedText)
+                } else {
+                    Result.failure(Exception("ИИ вернул пустой текст расшифровки."))
+                }
+            } else {
+                val errorBody = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                val errorMessage = parseErrorMessage(errorBody, responseCode)
+                Result.failure(Exception(errorMessage))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(Exception("Ошибка соединения с ИИ: ${e.localizedMessage ?: "проверьте сеть"}"))
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
     private fun encodeImageToBase64(context: Context, imageUri: Uri): String? {
         val inputStream: InputStream? = context.contentResolver.openInputStream(imageUri)
         val originalBitmap = inputStream?.use { BitmapFactory.decodeStream(it) } ?: return null

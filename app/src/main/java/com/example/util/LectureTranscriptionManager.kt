@@ -2,6 +2,8 @@ package com.example.util
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -16,19 +18,38 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.example.data.preferences.UserPreferencesManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 /**
- * Manager for continuous, stable speech-to-text transcription.
- * - Captures speech seamlessly into notes with real-time partial feedback.
- * - Formats text with smart punctuation and customizable word replacements.
- * - Handles Android audio session lifecycle safely without mic conflicts or infinite crash loops.
+ * Manager for continuous, high-fidelity audio recording & speech transcription.
+ *
+ * Supports two distinct modes:
+ * 1. [MODE_CONTINUOUS_AUDIO]: Truly uninterrupted audio recording using MediaRecorder.
+ *    - The microphone remains ON continuously without periodic restart loops, beeps, or disconnects.
+ *    - Saves full high-quality audio (.m4a) attached to the note.
+ *    - Real-time amplitude and duration tracking.
+ *    - Automatically transcribes speech using Gemini AI or offers manual one-tap transcription.
+ *
+ * 2. [MODE_STREAMING_SPEECH]: Real-time speech-to-text with system sound suppression.
+ *    - Formats text on the fly with smart punctuation and vocabulary replacements.
+ *    - Extended silence timeouts to prevent premature stops.
  */
 class LectureTranscriptionManager(private val context: Context) {
 
     companion object {
         private const val TAG = "LectureTranscription"
+        const val MODE_CONTINUOUS_AUDIO = "continuous_audio"
+        const val MODE_STREAMING_SPEECH = "streaming_speech"
     }
+
+    var activeMode by mutableStateOf(MODE_CONTINUOUS_AUDIO)
+        private set
 
     var isRecording by mutableStateOf(false)
         private set
@@ -39,10 +60,19 @@ class LectureTranscriptionManager(private val context: Context) {
     var isListening by mutableStateOf(false)
         private set
 
+    var isTranscribing by mutableStateOf(false)
+        private set
+
+    var transcriptionProgress by mutableStateOf("")
+        private set
+
     var durationSeconds by mutableLongStateOf(0L)
         private set
 
     var partialHypothesis by mutableStateOf("")
+        private set
+
+    var currentAmplitude by mutableFloatStateOf(0.05f)
         private set
 
     var currentRmsDb by mutableFloatStateOf(0f)
@@ -50,13 +80,21 @@ class LectureTranscriptionManager(private val context: Context) {
 
     private val preferencesManager = UserPreferencesManager(context)
     private var speechRecognizer: SpeechRecognizer? = null
+    private var mediaRecorder: MediaRecorder? = null
+    private var currentRecordingFile: File? = null
+
     private var onTextAppendedCallback: ((String) -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
+    private var onAudioSavedCallback: ((String) -> Unit)? = null
+
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     private var consecutiveErrors = 0
     private var lastPartialRaw = ""
     private var lastCommittedRaw = ""
-    private var currentNoteTitle = "Новая лекция"
+    private var currentNoteTitle = "Новая заметка"
+    private var wasMuted = false
 
     private val timerRunnable = object : Runnable {
         override fun run() {
@@ -75,8 +113,24 @@ class LectureTranscriptionManager(private val context: Context) {
         }
     }
 
+    private val amplitudeRunnable = object : Runnable {
+        override fun run() {
+            if (isRecording && !isPaused && activeMode == MODE_CONTINUOUS_AUDIO) {
+                try {
+                    val maxAmp = mediaRecorder?.maxAmplitude ?: 0
+                    val normalized = (maxAmp / 28000f).coerceIn(0.04f, 1f)
+                    currentAmplitude = normalized
+                    currentRmsDb = normalized * 10f
+                } catch (_: Exception) {}
+            }
+            if (isRecording && activeMode == MODE_CONTINUOUS_AUDIO) {
+                mainHandler.postDelayed(this, 120)
+            }
+        }
+    }
+
     private val restartRunnable = Runnable {
-        if (isRecording && !isPaused) {
+        if (isRecording && !isPaused && activeMode == MODE_STREAMING_SPEECH) {
             safeStartListening()
         }
     }
@@ -95,6 +149,7 @@ class LectureTranscriptionManager(private val context: Context) {
 
         override fun onRmsChanged(rmsdB: Float) {
             currentRmsDb = rmsdB
+            currentAmplitude = (rmsdB / 10f).coerceIn(0.04f, 1f)
         }
 
         override fun onBufferReceived(buffer: ByteArray?) {}
@@ -108,7 +163,6 @@ class LectureTranscriptionManager(private val context: Context) {
             Log.w(TAG, "onError: code=$error")
             isListening = false
 
-            // If the recognizer timed out while user was speaking, commit the partial hypothesis
             val pendingHypothesis = lastPartialRaw.trim()
             if (pendingHypothesis.isNotBlank() && pendingHypothesis != lastCommittedRaw) {
                 val formatted = formatRecognizedChunk(pendingHypothesis)
@@ -120,7 +174,7 @@ class LectureTranscriptionManager(private val context: Context) {
             lastPartialRaw = ""
             partialHypothesis = ""
 
-            if (!isRecording || isPaused) return
+            if (!isRecording || isPaused || activeMode != MODE_STREAMING_SPEECH) return
 
             if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                 stopRecording()
@@ -128,13 +182,10 @@ class LectureTranscriptionManager(private val context: Context) {
                 return
             }
 
-            // Normal silence pauses (ERROR_NO_MATCH = 7, ERROR_SPEECH_TIMEOUT = 6)
             val isNormalSilence = error == SpeechRecognizer.ERROR_NO_MATCH ||
                     error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
 
             if (isNormalSilence) {
-                // Speaker simply took a breath or paused.
-                // Cleanly restart after 350ms to let audio HAL complete cleanup
                 cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
                 mainHandler.postDelayed(restartRunnable, 350L)
@@ -158,7 +209,7 @@ class LectureTranscriptionManager(private val context: Context) {
                 consecutiveErrors++
                 if (consecutiveErrors >= 4) {
                     stopRecording()
-                    onErrorCallback?.invoke("Распознавание речи остановлено из-за сетевой или системной ошибки ($error)")
+                    onErrorCallback?.invoke("Распознавание речи остановлено из-за системной ошибки ($error)")
                 } else {
                     recreateRecognizerAndRestart(delayMs = 600L)
                 }
@@ -183,10 +234,9 @@ class LectureTranscriptionManager(private val context: Context) {
             }
             lastPartialRaw = ""
 
-            if (isRecording && !isPaused) {
+            if (isRecording && !isPaused && activeMode == MODE_STREAMING_SPEECH) {
                 cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
-                // 350ms gap gives Android audio hardware time to finalize previous chunk
                 mainHandler.postDelayed(restartRunnable, 350L)
             }
         }
@@ -205,25 +255,28 @@ class LectureTranscriptionManager(private val context: Context) {
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 
+    /**
+     * Starts audio recording or streaming speech recognition.
+     */
     fun startRecording(
-        noteTitle: String = "Новая лекция",
+        noteTitle: String = "Новая заметка",
+        mode: String? = null,
         onError: ((String) -> Unit)? = null,
+        onAudioSaved: ((String) -> Unit)? = null,
         onTextAppended: (String) -> Unit
     ): Boolean {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            return false
-        }
-
+        val selectedMode = mode ?: preferencesManager.getLectureRecordingModeSync()
+        activeMode = selectedMode
         currentNoteTitle = noteTitle
         onErrorCallback = onError
+        onAudioSavedCallback = onAudioSaved
         onTextAppendedCallback = onTextAppended
         durationSeconds = 0L
         partialHypothesis = ""
         isPaused = false
-        isRecording = true
         consecutiveErrors = 0
+        currentAmplitude = 0.05f
 
-        // Connect Foreground Service notification callbacks
         com.example.service.LectureRecordingService.onServiceActionReceived = { action ->
             when (action) {
                 com.example.service.LectureRecordingService.ACTION_TOGGLE_PAUSE -> togglePause()
@@ -235,6 +288,62 @@ class LectureTranscriptionManager(private val context: Context) {
         mainHandler.removeCallbacks(timerRunnable)
         mainHandler.postDelayed(timerRunnable, 1000)
 
+        return if (selectedMode == MODE_CONTINUOUS_AUDIO) {
+            startContinuousAudioRecording()
+        } else {
+            startStreamingSpeechRecognition()
+        }
+    }
+
+    private fun startContinuousAudioRecording(): Boolean {
+        return try {
+            val audioDir = File(context.filesDir, "audio_records").apply { mkdirs() }
+            val recordFile = File(audioDir, "rec_${System.currentTimeMillis()}.m4a")
+            currentRecordingFile = recordFile
+
+            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(context)
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }
+
+            recorder.apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128000)
+                setAudioSamplingRate(44100)
+                setOutputFile(recordFile.absolutePath)
+                prepare()
+                start()
+            }
+
+            mediaRecorder = recorder
+            isRecording = true
+            isListening = true
+
+            mainHandler.removeCallbacks(amplitudeRunnable)
+            mainHandler.postDelayed(amplitudeRunnable, 120)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start MediaRecorder", e)
+            isRecording = false
+            isListening = false
+            mediaRecorder?.release()
+            mediaRecorder = null
+            onErrorCallback?.invoke("Ошибка запуска непрерывной записи: ${e.localizedMessage}")
+            false
+        }
+    }
+
+    private fun startStreamingSpeechRecognition(): Boolean {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            onErrorCallback?.invoke("Распознавание речи недоступно на данном устройстве")
+            return false
+        }
+        isRecording = true
+        muteSystemSounds(true)
         initAndListen()
         return true
     }
@@ -242,13 +351,31 @@ class LectureTranscriptionManager(private val context: Context) {
     fun togglePause() {
         if (!isRecording) return
         isPaused = !isPaused
-        if (isPaused) {
-            partialHypothesis = ""
-            isListening = false
-            cleanCancel()
+
+        if (activeMode == MODE_CONTINUOUS_AUDIO) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    if (isPaused) {
+                        mediaRecorder?.pause()
+                    } else {
+                        mediaRecorder?.resume()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Pause/Resume error on MediaRecorder", e)
+            }
         } else {
-            safeStartListening()
+            if (isPaused) {
+                partialHypothesis = ""
+                isListening = false
+                cleanCancel()
+                muteSystemSounds(false)
+            } else {
+                muteSystemSounds(true)
+                safeStartListening()
+            }
         }
+
         com.example.service.LectureRecordingService.updateStatus(
             context,
             isPaused,
@@ -258,23 +385,108 @@ class LectureTranscriptionManager(private val context: Context) {
     }
 
     fun stopRecording() {
+        if (!isRecording && !isTranscribing) return
+
+        val wasContinuous = activeMode == MODE_CONTINUOUS_AUDIO
+        val savedFile = currentRecordingFile
+
         isRecording = false
         isPaused = false
         isListening = false
         partialHypothesis = ""
         consecutiveErrors = 0
+        currentAmplitude = 0.05f
+
+        muteSystemSounds(false)
 
         mainHandler.removeCallbacks(timerRunnable)
+        mainHandler.removeCallbacks(amplitudeRunnable)
         mainHandler.removeCallbacks(restartRunnable)
 
         com.example.service.LectureRecordingService.stop(context)
 
+        if (wasContinuous) {
+            try {
+                mediaRecorder?.stop()
+            } catch (e: Exception) {
+                Log.w(TAG, "MediaRecorder stop failed", e)
+            }
+            try {
+                mediaRecorder?.release()
+            } catch (_: Exception) {}
+            mediaRecorder = null
+
+            if (savedFile != null && savedFile.exists() && savedFile.length() > 0L) {
+                val filePath = savedFile.absolutePath
+                onAudioSavedCallback?.invoke(filePath)
+
+                // Automatic speech-to-text transcription via Gemini AI
+                isTranscribing = true
+                transcriptionProgress = "Оцифровка записи в текст через Gemini ИИ..."
+                scope.launch {
+                    try {
+                        val result = GeminiOcrService.transcribeAudioWithGemini(context, savedFile)
+                        withContext(Dispatchers.Main) {
+                            if (result.isSuccess) {
+                                val text = result.getOrNull().orEmpty()
+                                if (text.isNotBlank()) {
+                                    val formatted = formatRecognizedChunk(text)
+                                    onTextAppendedCallback?.invoke(formatted)
+                                }
+                            } else {
+                                val err = result.exceptionOrNull()?.localizedMessage
+                                if (!err.isNullOrBlank() && !err.contains("API-ключ")) {
+                                    onErrorCallback?.invoke(err)
+                                }
+                            }
+                            isTranscribing = false
+                            transcriptionProgress = ""
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Transcription failed", e)
+                        withContext(Dispatchers.Main) {
+                            isTranscribing = false
+                            transcriptionProgress = ""
+                        }
+                    }
+                }
+            }
+        } else {
+            try {
+                speechRecognizer?.stopListening()
+                speechRecognizer?.cancel()
+                speechRecognizer?.destroy()
+            } catch (_: Exception) {}
+            speechRecognizer = null
+        }
+    }
+
+    /**
+     * Suppresses system beep/chimes during speech recognition sessions.
+     */
+    private fun muteSystemSounds(mute: Boolean) {
         try {
-            speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
-            speechRecognizer?.destroy()
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            if (mute && !wasMuted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
+                } else {
+                    @Suppress("DEPRECATION")
+                    audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, true)
+                }
+                wasMuted = true
+            } else if (!mute && wasMuted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
+                } else {
+                    @Suppress("DEPRECATION")
+                    audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, false)
+                }
+                wasMuted = false
+            }
         } catch (_: Exception) {}
-        speechRecognizer = null
     }
 
     private fun cleanCancel() {
@@ -307,7 +519,7 @@ class LectureTranscriptionManager(private val context: Context) {
     private fun recreateRecognizerAndRestart(delayMs: Long) {
         mainHandler.removeCallbacks(restartRunnable)
         mainHandler.postDelayed({
-            if (isRecording && !isPaused) {
+            if (isRecording && !isPaused && activeMode == MODE_STREAMING_SPEECH) {
                 try {
                     speechRecognizer?.cancel()
                     speechRecognizer?.destroy()
@@ -330,7 +542,7 @@ class LectureTranscriptionManager(private val context: Context) {
     }
 
     private fun safeStartListening() {
-        if (!isRecording || isPaused) return
+        if (!isRecording || isPaused || activeMode != MODE_STREAMING_SPEECH) return
         try {
             val selectedLang = preferencesManager.getSpeechLanguageSync()
             val langTag = if (selectedLang.isBlank() || selectedLang == "auto") {
@@ -347,6 +559,11 @@ class LectureTranscriptionManager(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+
+                // Avoid frequent silence cut-offs
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 15000)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 10000)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 10000)
             }
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
