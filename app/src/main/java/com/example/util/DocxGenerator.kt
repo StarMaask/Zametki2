@@ -241,7 +241,10 @@ object DocxGenerator {
     }
 
     private fun escapeXml(text: String): String {
-        return text.replace("&", "&amp;")
+        val sanitized = text.filter { ch ->
+            ch == '\t' || ch == '\n' || ch == '\r' || (ch.code in 0x20..0xD7FF) || (ch.code in 0xE000..0xFFFD)
+        }
+        return sanitized.replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
@@ -253,7 +256,7 @@ object DocxGenerator {
      * Optionally embeds user's digital handwritten signature directly into the signature block.
      */
     fun generateDocxFile(context: Context, note: Note, includeSignature: Boolean = true): File {
-        val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
+        val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-ЯёЁ0-9_\\-]"), "_").trim('_').take(35).ifBlank { "document" }
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
         val docxFile = File(exportDir, "${cleanTitle}.docx")
 
@@ -325,7 +328,7 @@ object DocxGenerator {
      * Guaranteed to open in Microsoft Word, Word Mobile, LibreOffice, WordPad without corruption errors.
      */
     fun generateRtfDocFile(context: Context, note: Note): File {
-        val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
+        val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-ЯёЁ0-9_\\-]"), "_").trim('_').take(35).ifBlank { "document" }
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
         val docFile = File(exportDir, "${cleanTitle}.doc")
 

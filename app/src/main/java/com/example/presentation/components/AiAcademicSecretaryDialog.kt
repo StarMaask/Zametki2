@@ -2,6 +2,7 @@ package com.example.presentation.components
 
 import android.content.Context
 import android.content.Intent
+import android.os.Environment
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -17,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -80,6 +82,7 @@ fun AiAcademicSecretaryDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
+    var templateDropdownExpanded by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
@@ -126,11 +129,11 @@ fun AiAcademicSecretaryDialog(
     }
 
     val professorChips = listOf(
-        "Решить математическую задачу по шагам с формулами",
-        "Составить подробный конспект лекции со структурой и терминами",
+        "Решить математическую задачу по шагам с формулами и выкладками",
+        "Составить подробный конспект лекции со структурой и ключевыми терминами",
         "Написать реферат с введением, главами и списком литературы по ГОСТ",
-        "Разработать аналитический раздел дипломной работы с расчетами",
-        "Физика: подробный вывод формулы и законы сохранения",
+        "Разработать аналитический раздел научной работы с расчетами",
+        "Физика: подробный вывод формулы, законы сохранения и размерности",
         "Химия: уравнение реакции, механизм и стехиометрический расчет"
     )
 
@@ -145,10 +148,10 @@ fun AiAcademicSecretaryDialog(
 
     val refinementChips = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) {
         listOf(
-            "Распиши подробнее математические выкладки",
-            "Добавь сравнительную таблицу данных",
+            "Распиши подробнее математические выкладки и формулы",
+            "Добавь сравнительную таблицу данных и параметров",
             "Сформулируй контрольные вопросы для самопроверки",
-            "Перепроверь единицы измерения и размерности",
+            "Перепроверь размерности и единицы измерения СИ",
             "Оформи список литературы строго по ГОСТ 7.0.5"
         )
     } else {
@@ -192,8 +195,9 @@ fun AiAcademicSecretaryDialog(
         isLoading = true
 
         scope.launch {
-            // Scroll to bottom
-            listState.animateScrollToItem(updatedMessages.size)
+            if (updatedMessages.isNotEmpty()) {
+                listState.animateScrollToItem(updatedMessages.size - 1)
+            }
 
             val contextText = if (includeNoteContext && initialNote != null) {
                 "Заголовок: ${initialNote.title}\n\nТекст заметки:\n${initialNote.content}"
@@ -224,7 +228,7 @@ fun AiAcademicSecretaryDialog(
                     text = modelText
                 )
                 messages = messages + modelMessage
-                listState.animateScrollToItem(messages.size)
+                listState.animateScrollToItem(messages.size - 1)
             } else {
                 errorMessage = result.exceptionOrNull()?.localizedMessage ?: "Ошибка генерации ответа"
             }
@@ -243,145 +247,159 @@ fun AiAcademicSecretaryDialog(
 
     Dialog(
         onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        Card(
+        Box(
             modifier = Modifier
-                .fillMaxWidth(0.98f)
-                .fillMaxHeight(0.96f)
-                .padding(vertical = 6.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                .fillMaxSize()
+                .imePadding()
+                .systemBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(14.dp)
+                    .fillMaxWidth()
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
-                // Top Header with Role Switcher & Controls
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp)
                 ) {
+                    // Top Header with Role Switcher & Controls
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    else
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                ),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Icon(
-                                imageVector = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Work,
-                                contentDescription = null,
-                                tint = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = selectedRole.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = selectedRole.subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (messages.isNotEmpty()) {
-                            IconButton(
-                                onClick = {
-                                    messages = emptyList()
-                                    errorMessage = null
-                                    pendingAttachments = emptyList()
-                                },
-                                modifier = Modifier.size(36.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        else
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                    ),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Очистить чат", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(
+                                    imageVector = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Work,
+                                    contentDescription = null,
+                                    tint = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = selectedRole.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = selectedRole.subtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
-                        IconButton(onClick = onDismissRequest, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Закрыть")
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (messages.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        messages = emptyList()
+                                        errorMessage = null
+                                        pendingAttachments = emptyList()
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Новый диалог", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            IconButton(onClick = onDismissRequest, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Filled.Close, contentDescription = "Закрыть")
+                            }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                // Role selector tabs
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    SegmentedButton(
-                        selected = selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR,
-                        onClick = { selectedRole = AiAcademicAndSecretaryService.AssistantRole.PROFESSOR },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        icon = { Icon(Icons.Filled.School, null, modifier = Modifier.size(15.dp)) }
-                    ) {
-                        Text("🎓 Профессор наук", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                    // Role selector tabs
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        SegmentedButton(
+                            selected = selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR,
+                            onClick = { selectedRole = AiAcademicAndSecretaryService.AssistantRole.PROFESSOR },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                            icon = { Icon(Icons.Filled.School, null, modifier = Modifier.size(15.dp)) }
+                        ) {
+                            Text("🎓 Профессор наук", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        SegmentedButton(
+                            selected = selectedRole == AiAcademicAndSecretaryService.AssistantRole.SECRETARY,
+                            onClick = { selectedRole = AiAcademicAndSecretaryService.AssistantRole.SECRETARY },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                            icon = { Icon(Icons.Filled.Work, null, modifier = Modifier.size(15.dp)) }
+                        ) {
+                            Text("💼 Умный секретарь", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
-                    SegmentedButton(
-                        selected = selectedRole == AiAcademicAndSecretaryService.AssistantRole.SECRETARY,
-                        onClick = { selectedRole = AiAcademicAndSecretaryService.AssistantRole.SECRETARY },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        icon = { Icon(Icons.Filled.Work, null, modifier = Modifier.size(15.dp)) }
-                    ) {
-                        Text("💼 Умный секретарь", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // Main Chat & Dialogue Area
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Welcome card and template chips if chat is empty
-                    if (messages.isEmpty() && !isLoading) {
-                        item {
+                    // CONTENT AREA: Initial Setup Screen VS Dialogue Screen
+                    if (messages.isEmpty()) {
+                        // ==========================================
+                        // INITIAL SCREEN: TASK SETUP (ПОСТАНОВКА ЗАДАЧИ)
+                        // Input field is prominently near the top and NOT pushed down by long lists
+                        // Quick templates are in a clean DROPDOWN LIST as requested by user
+                        // ==========================================
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Info card
                             Card(
                                 shape = RoundedCornerShape(16.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                                 ),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
+                                Column(modifier = Modifier.padding(12.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
                                             Icons.Filled.AutoAwesome,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                                "Университетский ИИ Профессор"
+                                                "Постановка научной задачи Профессору"
                                             else
-                                                "Секретарь делопроизводства по ГОСТ",
+                                                "Постановка задачи Секретарю по ГОСТ",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -389,150 +407,397 @@ fun AiAcademicSecretaryDialog(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                            "Задайте задачу по математике, физике, химии или прикрепите фото условий. Составит подробный конспект, реферат или дипломную работу с глубоким академическим анализом."
+                                            "Решит сложную задачу по шагам с формулами, напишет конспект или реферат. Прикрепите фото или скан задания."
                                         else
-                                            "Составит официальное заявление, служебную записку, договор или акт с реквизитами. Прикрепите скан для проверки и исправления ошибок.",
+                                            "Составит официальное заявление, служебную записку, договор или акт с реквизитами по ГОСТ Р 7.0.97-2016.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
-                        }
 
-                        item {
-                            Text(
-                                text = "Быстрые шаблоны заданий:",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            val chips = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) professorChips else secretaryChips
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                chips.forEach { chipText ->
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                        tonalElevation = 1.dp,
+                            // QUICK TEMPLATES DROPDOWN (ВЫПАДАЮЩИЙ СПИСОК ШАБЛОНОВ)
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedCard(
+                                    onClick = { templateDropdownExpanded = true },
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.outlinedCardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { sendMessage(chipText) }
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.PlaylistAddCheck,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = "Быстрые шаблоны заданий",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "Нажмите, чтобы выбрать из выпадающего списка...",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            Icons.Filled.ArrowDropDown,
+                                            contentDescription = "Раскрыть список",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = templateDropdownExpanded,
+                                    onDismissRequest = { templateDropdownExpanded = false },
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.92f)
+                                        .heightIn(max = 350.dp)
+                                ) {
+                                    val currentChips = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+                                        professorChips
+                                    else
+                                        secretaryChips
+
+                                    currentChips.forEach { chipText ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = chipText,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Description,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                promptInput = chipText
+                                                templateDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // TASK DESCRIPTION TEXT FIELD (Поле описания задачи)
+                            Text(
+                                text = "Описание задачи / текст запроса:",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            OutlinedTextField(
+                                value = promptInput,
+                                onValueChange = { promptInput = it },
+                                placeholder = {
+                                    Text(
+                                        text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+                                            "Опишите задачу (математика, физика, химия, алгоритмы), тему конспекта или реферата. Прикрепите фото или скан..."
+                                        else
+                                            "Опишите вид документа: заявление, служебная записка, акт приёма-передачи, договор. Укажите реквизиты или прикрепите скан...",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 110.dp, max = 220.dp),
+                                shape = RoundedCornerShape(14.dp)
+                            )
+
+                            // ATTACHMENT ACTIONS & CHIPS
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        photoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Фото / Скан", fontSize = 12.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        documentPickerLauncher.launch(
+                                            arrayOf(
+                                                "application/pdf",
+                                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                                "text/*",
+                                                "application/msword"
+                                            )
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(Icons.Filled.Description, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Документ", fontSize = 12.sp)
+                                }
+                            }
+
+                            // Processing indicator for attachments
+                            if (isProcessingAttachment) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Распознавание и считывание документа/фото...",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            // Pending Attachments chips
+                            if (pendingAttachments.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    pendingAttachments.forEach { att ->
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = when {
+                                                        att.isImage -> Icons.Filled.Image
+                                                        att.isPdf -> Icons.Filled.PictureAsPdf
+                                                        att.name.endsWith(".docx", ignoreCase = true) -> Icons.Filled.Article
+                                                        else -> Icons.Filled.Description
+                                                    },
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = att.name,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 140.dp)
+                                                )
+                                                IconButton(
+                                                    onClick = { pendingAttachments = pendingAttachments - att },
+                                                    modifier = Modifier.size(18.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Close, contentDescription = "Удалить", modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Open note context toggle
+                            if (initialNote != null && initialNote.content.isNotBlank()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { includeNoteContext = !includeNoteContext }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = includeNoteContext,
+                                        onCheckedChange = { includeNoteContext = it }
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Использовать текст открытой заметки («${initialNote.title.ifBlank { "Без названия" }}»)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // PRIMARY ACTION BUTTON (Запустить)
+                            Button(
+                                onClick = { sendMessage() },
+                                enabled = (promptInput.isNotBlank() || pendingAttachments.isNotEmpty()) && !isLoading && !isProcessingAttachment,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.secondary
+                                )
+                            ) {
+                                Icon(
+                                    if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Send,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+                                        "Запустить подробное решение задачи"
+                                    else
+                                        "Сформировать документ по ГОСТ",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    } else {
+                        // ==========================================
+                        // DIALOGUE SCREEN: CHAT WITH MESSAGES, CONTINUING CONVERSATION & REFINEMENTS
+                        // ==========================================
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(messages, key = { it.id }) { msg ->
+                                if (msg.isUser) {
+                                    UserMessageBubble(msg = msg)
+                                } else {
+                                    ModelMessageCard(
+                                        message = msg,
+                                        context = context,
+                                        clipboardManager = clipboardManager,
+                                        scope = scope,
+                                        selectedRole = selectedRole,
+                                        repository = repository,
+                                        onInsertTextIntoNote = onInsertTextIntoNote,
+                                        onDismissRequest = onDismissRequest
+                                    )
+                                }
+                            }
+
+                            // Loading state
+                            if (isLoading) {
+                                item {
+                                    Card(
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                                strokeWidth = 2.5.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(14.dp))
+                                            Column {
+                                                Text(
+                                                    text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+                                                        "Профессор анализирует задачу и рассчитывает выкладки..."
+                                                    else
+                                                        "Секретарь формулирует и оформляет документ по ГОСТ...",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    text = "Формирование развернутого ответа со всеми деталями",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Error state
+                            if (errorMessage != null) {
+                                item {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.errorContainer,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                Icons.Filled.ArrowOutward,
+                                                Icons.Filled.ErrorOutline,
                                                 contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(16.dp)
+                                                tint = MaterialTheme.colorScheme.error
                                             )
-                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Spacer(modifier = Modifier.width(10.dp))
                                             Text(
-                                                text = chipText,
+                                                text = errorMessage!!,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = MaterialTheme.colorScheme.onErrorContainer
                                             )
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // Conversation Messages
-                    items(messages, key = { it.id }) { msg ->
-                        if (msg.isUser) {
-                            UserMessageBubble(msg = msg)
-                        } else {
-                            ModelMessageCard(
-                                message = msg,
-                                context = context,
-                                clipboardManager = clipboardManager,
-                                scope = scope,
-                                selectedRole = selectedRole,
-                                repository = repository,
-                                onInsertTextIntoNote = onInsertTextIntoNote,
-                                onDismissRequest = onDismissRequest
-                            )
-                        }
-                    }
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                    // Loading State
-                    if (isLoading) {
-                        item {
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.5.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column {
-                                        Text(
-                                            text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                                "Профессор анализирует задачу и рассчитывает выкладки..."
-                                            else
-                                                "Секретарь формулирует и оформляет документ по ГОСТ...",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            text = "Формирование развернутого ответа со всеми деталями",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Error State
-                    if (errorMessage != null) {
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Filled.ErrorOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = errorMessage!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Refinement suggestions when there are messages
-                    if (messages.isNotEmpty() && !isLoading) {
-                        item {
+                        // Refinement suggestions chips for continuing dialogue
+                        if (!isLoading) {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    text = "💡 Уточнить или доработать документ:",
+                                    text = "💡 Добавить нюанс или доработать документ:",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary
@@ -552,193 +817,163 @@ fun AiAcademicSecretaryDialog(
                                     }
                                 }
                             }
+                            Spacer(modifier = Modifier.height(6.dp))
                         }
-                    }
-                }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Pending Attachments Bar
-                if (pendingAttachments.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        pendingAttachments.forEach { att ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                        // Pending Attachments Bar in dialogue mode
+                        if (pendingAttachments.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = when {
-                                            att.isImage -> Icons.Filled.Image
-                                            att.isPdf -> Icons.Filled.PictureAsPdf
-                                            att.name.endsWith(".docx", ignoreCase = true) -> Icons.Filled.Article
-                                            else -> Icons.Filled.Description
-                                        },
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = att.name,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.widthIn(max = 120.dp)
-                                    )
-                                    IconButton(
-                                        onClick = { pendingAttachments = pendingAttachments - att },
-                                        modifier = Modifier.size(16.dp)
+                                pendingAttachments.forEach { att ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                                     ) {
-                                        Icon(Icons.Filled.Close, contentDescription = "Удалить", modifier = Modifier.size(12.dp))
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (att.isImage) Icons.Filled.Image else Icons.Filled.Description,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = att.name,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.widthIn(max = 120.dp)
+                                            )
+                                            IconButton(
+                                                onClick = { pendingAttachments = pendingAttachments - att },
+                                                modifier = Modifier.size(16.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Close, contentDescription = "Удалить", modifier = Modifier.size(12.dp))
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-
-                // Processing indicator for attachments
-                if (isProcessingAttachment) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Считывание и распознавание документа/фото...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                // Initial Note Context Toggle (if available)
-                if (initialNote != null && initialNote.content.isNotBlank() && messages.isEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { includeNoteContext = !includeNoteContext }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = includeNoteContext,
-                            onCheckedChange = { includeNoteContext = it }
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Использовать текст открытой заметки («${initialNote.title.ifBlank { "Без названия" }}»)",
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                // Bottom Composer & Input Dock
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        // Attachment Menu Button
-                        Box {
-                            IconButton(
-                                onClick = { showAttachmentMenu = true },
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.AttachFile,
-                                    contentDescription = "Прикрепить фото или документ",
-                                    tint = if (pendingAttachments.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showAttachmentMenu,
-                                onDismissRequest = { showAttachmentMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("📷 Фото / Скан задания") },
-                                    leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null) },
-                                    onClick = {
-                                        showAttachmentMenu = false
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("📄 Документ (PDF, Word, Текст)") },
-                                    leadingIcon = { Icon(Icons.Filled.Description, null) },
-                                    onClick = {
-                                        showAttachmentMenu = false
-                                        documentPickerLauncher.launch(
-                                            arrayOf(
-                                                "application/pdf",
-                                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                                "text/*",
-                                                "application/msword"
-                                            )
-                                        )
-                                    }
-                                )
-                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                         }
 
-                        // Text Input Field
-                        OutlinedTextField(
-                            value = promptInput,
-                            onValueChange = { promptInput = it },
-                            placeholder = {
+                        // Processing indicator for attachments in dialogue mode
+                        if (isProcessingAttachment) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = when {
-                                        pendingAttachments.isNotEmpty() -> "Уточнение к материалам (или отправьте)..."
-                                        messages.isNotEmpty() -> "Продолжить диалог, добавить правку..."
-                                        selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> "Опишите задачу, тему конспекта или реферата..."
-                                        else -> "Опишите документ: заявление, договор, акт..."
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = "Считывание документа/фото...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 4.dp),
-                            maxLines = 4,
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
 
-                        // Send Button
-                        FilledIconButton(
-                            onClick = { sendMessage() },
-                            enabled = (promptInput.isNotBlank() || pendingAttachments.isNotEmpty()) && !isLoading && !isProcessingAttachment,
-                            modifier = Modifier.size(40.dp)
+                        // CONTINUING DIALOGUE COMPOSER DOCK (Поле ввода для продолжения диалога)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                Icons.Filled.Send,
-                                contentDescription = "Отправить",
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                // Attachment menu button
+                                Box {
+                                    IconButton(
+                                        onClick = { showAttachmentMenu = true },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.AttachFile,
+                                            contentDescription = "Прикрепить фото или документ",
+                                            tint = if (pendingAttachments.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = showAttachmentMenu,
+                                        onDismissRequest = { showAttachmentMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("📷 Фото / Скан задания") },
+                                            leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null) },
+                                            onClick = {
+                                                showAttachmentMenu = false
+                                                photoPickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("📄 Документ (PDF, Word, Текст)") },
+                                            leadingIcon = { Icon(Icons.Filled.Description, null) },
+                                            onClick = {
+                                                showAttachmentMenu = false
+                                                documentPickerLauncher.launch(
+                                                    arrayOf(
+                                                        "application/pdf",
+                                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                                        "text/*",
+                                                        "application/msword"
+                                                    )
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+
+                                // Text input field
+                                OutlinedTextField(
+                                    value = promptInput,
+                                    onValueChange = { promptInput = it },
+                                    placeholder = {
+                                        Text(
+                                            text = if (pendingAttachments.isNotEmpty())
+                                                "Уточнение к материалам..."
+                                            else
+                                                "Продолжить диалог, добавить нюанс...",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp),
+                                    maxLines = 4,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+
+                                // Send Button
+                                FilledIconButton(
+                                    onClick = { sendMessage() },
+                                    enabled = (promptInput.isNotBlank() || pendingAttachments.isNotEmpty()) && !isLoading && !isProcessingAttachment,
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Send,
+                                        contentDescription = "Отправить",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -811,6 +1046,14 @@ private fun ModelMessageCard(
     onInsertTextIntoNote: ((String) -> Unit)?,
     onDismissRequest: () -> Unit
 ) {
+    var isSavedInApp by remember { mutableStateOf(false) }
+
+    val baseTitle = remember(message.text) {
+        message.text.lines().firstOrNull { it.isNotBlank() }?.take(40)?.trim()
+            ?.removePrefix("#")?.removePrefix("*")?.trim()
+            ?: (if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Научный_материал" else "Официальный_документ")
+    }
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -819,7 +1062,7 @@ private fun ModelMessageCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Header with badge and copy button
+            // Header with badge, quick save button and copy button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -850,14 +1093,46 @@ private fun ModelMessageCard(
                     }
                 }
 
-                IconButton(
-                    onClick = {
-                        clipboardManager.setText(AnnotatedString(message.text))
-                        Toast.makeText(context, "Скопировано в буфер обмена", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать", modifier = Modifier.size(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Quick Save Button in header
+                    if (repository != null) {
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    val newNote = Note(
+                                        title = baseTitle,
+                                        content = message.text,
+                                        folder = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Учеба и Наука" else "Документы",
+                                        tags = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) listOf("профессор", "наука") else listOf("секретарь", "гост")
+                                    )
+                                    repository.insertNote(newNote)
+                                    isSavedInApp = true
+                                    Toast.makeText(context, "Сохранено в заметку «$baseTitle»!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(
+                                if (isSavedInApp) Icons.Filled.Check else Icons.Filled.BookmarkAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (isSavedInApp) "Сохранено" else "Сохранить", fontSize = 11.sp)
+                        }
+                    }
+
+                    // Copy Button
+                    IconButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(message.text))
+                            Toast.makeText(context, "Скопировано в буфер обмена", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать", modifier = Modifier.size(16.dp))
+                    }
                 }
             }
 
@@ -876,7 +1151,7 @@ private fun ModelMessageCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             Spacer(modifier = Modifier.height(10.dp))
 
-            // PROMINENT DOCUMENT ACTIONS & SAVE SECTION
+            // PROMINENT SAVE & EXPORT SECTION
             Text(
                 text = "💾 Сохранение и экспорт готового результата:",
                 style = MaterialTheme.typography.labelMedium,
@@ -885,11 +1160,7 @@ private fun ModelMessageCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            val baseTitle = message.text.lines().firstOrNull { it.isNotBlank() }?.take(35)?.trim()
-                ?.removePrefix("#")?.removePrefix("*")?.trim()
-                ?: (if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Научный_материал" else "Официальный_документ")
-
-            // PRIMARY ACTION: SAVE DIRECTLY TO APP NOTES
+            // 1. SAVE DIRECTLY TO APP NOTES (Кнопка сохранения информации в приложении)
             if (repository != null) {
                 Button(
                     onClick = {
@@ -901,23 +1172,31 @@ private fun ModelMessageCard(
                                 tags = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) listOf("профессор", "наука") else listOf("секретарь", "гост")
                             )
                             repository.insertNote(newNote)
-                            Toast.makeText(context, "Успешно сохранено в заметку «$baseTitle»!", Toast.LENGTH_LONG).show()
+                            isSavedInApp = true
+                            Toast.makeText(context, "Успешно сохранено в заметки: «$baseTitle»!", Toast.LENGTH_LONG).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = if (isSavedInApp) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
                     ),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        if (isSavedInApp) Icons.Filled.CheckCircle else Icons.Filled.Save,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Сохранить в заметки приложения", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (isSavedInApp) "✓ Заметка уже сохранена в приложении" else "Сохранить в заметки приложения",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // INSERT INTO CURRENT OPEN NOTE (if opened from editor)
+            // 2. INSERT INTO OPEN NOTE (if opened from note editor)
             if (onInsertTextIntoNote != null) {
                 FilledTonalButton(
                     onClick = {
@@ -935,7 +1214,7 @@ private fun ModelMessageCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // EXPORT BUTTONS ROW: WORD (.DOCX / .DOC), EXCEL, PDF
+            // 3. EXPORT BUTTONS ROW: WORD (.DOCX / .DOC), EXCEL, PDF
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -944,9 +1223,7 @@ private fun ModelMessageCard(
             ) {
                 // Word .docx
                 FilledTonalButton(
-                    onClick = {
-                        exportToDocx(context, baseTitle, message.text)
-                    },
+                    onClick = { exportToDocx(context, baseTitle, message.text) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Description, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
@@ -956,9 +1233,7 @@ private fun ModelMessageCard(
 
                 // Word .doc (RTF)
                 FilledTonalButton(
-                    onClick = {
-                        exportToRtfDoc(context, baseTitle, message.text)
-                    },
+                    onClick = { exportToRtfDoc(context, baseTitle, message.text) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Article, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
@@ -968,9 +1243,7 @@ private fun ModelMessageCard(
 
                 // Excel .xlsx
                 FilledTonalButton(
-                    onClick = {
-                        exportToXlsx(context, baseTitle, message.text)
-                    },
+                    onClick = { exportToXlsx(context, baseTitle, message.text) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.TableChart, null, modifier = Modifier.size(16.dp), tint = Color(0xFF2E7D32))
@@ -980,14 +1253,22 @@ private fun ModelMessageCard(
 
                 // PDF (ГОСТ)
                 FilledTonalButton(
-                    onClick = {
-                        exportToPdf(context, baseTitle, message.text)
-                    },
+                    onClick = { exportToPdf(context, baseTitle, message.text) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.PictureAsPdf, null, modifier = Modifier.size(16.dp), tint = Color(0xFFC62828))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("PDF (ГОСТ)", fontSize = 12.sp)
+                }
+
+                // Direct Save to Downloads folder
+                FilledTonalButton(
+                    onClick = { saveDocxDirectlyToDownloads(context, baseTitle, message.text) },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("В Загрузки", fontSize = 12.sp)
                 }
             }
         }
@@ -999,7 +1280,8 @@ private fun exportToDocx(context: Context, title: String, text: String) {
         val file = DocxGenerator.generateDocxFromText(context, title, text)
         shareFile(context, file, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Открыть в Word (.docx)")
     } catch (e: Exception) {
-        Toast.makeText(context, "Ошибка экспорта Word: ${e.message}", Toast.LENGTH_SHORT).show()
+        val saved = saveDirectlyToDownloads(context, title, "docx", text)
+        Toast.makeText(context, "Файл Word сохранен в Загрузки: ${saved?.name}", Toast.LENGTH_LONG).show()
     }
 }
 
@@ -1008,7 +1290,8 @@ private fun exportToRtfDoc(context: Context, title: String, text: String) {
         val file = DocxGenerator.generateRtfFromText(context, title, text)
         shareFile(context, file, "application/msword", "Открыть в Word (.doc)")
     } catch (e: Exception) {
-        Toast.makeText(context, "Ошибка экспорта Word .doc: ${e.message}", Toast.LENGTH_SHORT).show()
+        val saved = saveDirectlyToDownloads(context, title, "doc", text)
+        Toast.makeText(context, "Файл Word .doc сохранен в Загрузки: ${saved?.name}", Toast.LENGTH_LONG).show()
     }
 }
 
@@ -1025,7 +1308,6 @@ private fun exportToXlsx(context: Context, title: String, text: String) {
                 tableTitle = firstTable.title ?: title
             )
         } else {
-            // Create a structured 2-column table from paragraphs
             val rows = text.lines().filter { it.isNotBlank() }.mapIndexed { idx, line ->
                 listOf((idx + 1).toString(), line)
             }
@@ -1039,7 +1321,7 @@ private fun exportToXlsx(context: Context, title: String, text: String) {
         }
         shareFile(context, file, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Открыть в Excel / Таблицах")
     } catch (e: Exception) {
-        Toast.makeText(context, "Ошибка экспорта Excel: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Экспорт Excel: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1061,21 +1343,71 @@ private fun exportToPdf(context: Context, title: String, text: String) {
             Toast.makeText(context, "Не удалось сформировать PDF", Toast.LENGTH_SHORT).show()
         }
     } catch (e: Exception) {
-        Toast.makeText(context, "Ошибка экспорта PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Экспорт PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun saveDocxDirectlyToDownloads(context: Context, title: String, text: String) {
+    try {
+        val file = DocxGenerator.generateDocxFromText(context, title, text)
+        val saved = copyFileToDownloads(context, file)
+        Toast.makeText(context, "Документ Word сохранен в Загрузки: ${saved?.name ?: file.name}", Toast.LENGTH_LONG).show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "Ошибка сохранения в Загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun copyFileToDownloads(context: Context, sourceFile: File): File? {
+    return try {
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        downloadsDir.mkdirs()
+        val destFile = File(downloadsDir, sourceFile.name)
+        sourceFile.copyTo(destFile, overwrite = true)
+        destFile
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private fun saveDirectlyToDownloads(context: Context, title: String, ext: String, text: String): File? {
+    return try {
+        val cleanTitle = title.replace(Regex("[^a-zA-Zа-яА-ЯёЁ0-9_\\-]"), "_").trim('_').take(35).ifBlank { "document" }
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        downloadsDir.mkdirs()
+        val destFile = File(downloadsDir, "${cleanTitle}_${System.currentTimeMillis()}.$ext")
+        destFile.writeText(text, Charsets.UTF_8)
+        destFile
+    } catch (e: Exception) {
+        null
     }
 }
 
 private fun shareFile(context: Context, file: File, mimeType: String, chooserTitle: String) {
-    val authority = "${context.packageName}.provider"
-    val uri = try {
-        FileProvider.getUriForFile(context, authority, file)
-    } catch (_: Exception) {
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    try {
+        val authority = "${context.packageName}.provider"
+        val uri = try {
+            FileProvider.getUriForFile(context, authority, file)
+        } catch (_: Exception) {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(intent, chooserTitle).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val resInfoList = context.packageManager.queryIntentActivities(chooser, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        for (resolveInfo in resInfoList) {
+            val packageName = resolveInfo.activityInfo.packageName
+            context.grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        // Fallback: save to downloads
+        val target = copyFileToDownloads(context, file)
+        Toast.makeText(context, "Файл сохранен в Загрузки: ${target?.name ?: file.name}", Toast.LENGTH_LONG).show()
     }
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = mimeType
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(Intent.createChooser(intent, chooserTitle))
 }
