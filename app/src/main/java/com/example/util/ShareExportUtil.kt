@@ -97,7 +97,9 @@ data class PdfExportConfig(
     val includePageNumbers: Boolean = true,
     val includeChecklist: Boolean = true,
     val includeSignature: Boolean = true,
-    val includeStamp: Boolean = false
+    val includeStamp: Boolean = false,
+    val includeCorporateLetterhead: Boolean = false,
+    val includeVerificationQr: Boolean = false
 )
 
 object ShareExportUtil {
@@ -718,6 +720,68 @@ object ShareExportUtil {
                 // Start first page
                 startNewPage()
 
+                // Corporate Letterhead banner on Page 1
+                if (config.includeCorporateLetterhead) {
+                    val letterhead = com.example.data.preferences.UserPreferencesManager(context).getCorporateLetterheadSync()
+                    if (letterhead.organizationName.isNotBlank()) {
+                        val orgColor = try {
+                            Color.parseColor(letterhead.primaryColorHex)
+                        } catch (_: Exception) {
+                            Color.rgb(13, 71, 161)
+                        }
+
+                        val orgPaint = TextPaint().apply {
+                            color = orgColor
+                            textSize = 13.5f
+                            typeface = Typeface.create(noteTypeface, Typeface.BOLD)
+                            isAntiAlias = true
+                        }
+                        val deptPaint = TextPaint().apply {
+                            color = Color.rgb(80, 80, 90)
+                            textSize = 9.5f
+                            typeface = Typeface.create(noteTypeface, Typeface.NORMAL)
+                            isAntiAlias = true
+                        }
+                        val metaLetterPaint = TextPaint().apply {
+                            color = Color.rgb(120, 120, 130)
+                            textSize = 8f
+                            typeface = noteTypeface
+                            isAntiAlias = true
+                        }
+
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.drawText(letterhead.organizationName.uppercase(), marginLeft, currentY + 12f, orgPaint)
+                        }
+                        currentY += 16f
+
+                        if (letterhead.department.isNotBlank()) {
+                            if (!dryRun && activeCanvas != null) {
+                                activeCanvas?.drawText(letterhead.department, marginLeft, currentY + 10f, deptPaint)
+                            }
+                            currentY += 13f
+                        }
+
+                        val contactLine = "${letterhead.innKppOgrn}  |  ${letterhead.contacts}"
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.drawText(contactLine.take(85), marginLeft, currentY + 8f, metaLetterPaint)
+                        }
+                        currentY += 12f
+
+                        if (letterhead.showAccentLine) {
+                            val lineP = Paint().apply {
+                                color = orgColor
+                                strokeWidth = 2.2f
+                            }
+                            if (!dryRun && activeCanvas != null) {
+                                activeCanvas?.drawLine(marginLeft, currentY + 4f, pageWidth - marginRight, currentY + 4f, lineP)
+                            }
+                            currentY += 14f
+                        } else {
+                            currentY += 8f
+                        }
+                    }
+                }
+
                 if (docStructure.isOfficialDocument && docStructure.headerLines.isNotEmpty()) {
                     // Render Right-Aligned Requisite Header Block (ГОСТ Р 7.0.97-2016)
                     val headerLeft = marginLeft + contentWidth * 0.48f
@@ -898,6 +962,29 @@ object ShareExportUtil {
                         activeCanvas?.translate(marginLeft, currentY)
                         dateLayout.draw(activeCanvas!!)
                         activeCanvas?.restore()
+
+                        // Draw verification QR code if requested
+                        if (config.includeVerificationQr) {
+                            val authorName = com.example.data.preferences.UserPreferencesManager(context).getUserProfileSync().fullName
+                            val passportText = QrCodeGeneratorUtil.buildDocumentVerificationPassport(
+                                title = note.title,
+                                author = authorName,
+                                date = dateFormat.format(Date(note.updatedAt)),
+                                noteContent = note.content,
+                                docId = note.id
+                            )
+                            val qrBmp = QrCodeGeneratorUtil.generateQrBitmap(passportText, sizePx = 160)
+                            val scaledQr = Bitmap.createScaledBitmap(qrBmp, 48, 48, true)
+                            val qrDrawX = marginLeft + dateLayout.width + 16f
+                            activeCanvas?.drawBitmap(scaledQr, qrDrawX, currentY - 4f, Paint(Paint.FILTER_BITMAP_FLAG))
+                            val qrMetaP = TextPaint().apply {
+                                color = Color.rgb(110, 110, 120)
+                                textSize = 6.5f
+                                typeface = noteTypeface
+                                isAntiAlias = true
+                            }
+                            activeCanvas?.drawText("ЭЦП ГОСТ", qrDrawX, currentY + 52f, qrMetaP)
+                        }
 
                         // Draw digital handwritten signature / facsimile stamp
                         if (sigBitmap != null) {

@@ -30,8 +30,8 @@ data class NotesListUiState(
 )
 
 class NotesListViewModel(
-    private val repository: NoteRepository,
-    private val preferencesManager: UserPreferencesManager
+    val repository: NoteRepository,
+    val preferencesManager: UserPreferencesManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(

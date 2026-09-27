@@ -335,6 +335,14 @@ object DocxGenerator {
         return docFile
     }
 
+    fun generateDocxFromText(context: Context, title: String, content: String): File {
+        return generateDocxFile(context, Note(title = title, content = content), includeSignature = false)
+    }
+
+    fun generateRtfFromText(context: Context, title: String, content: String): File {
+        return generateRtfDocFile(context, Note(title = title, content = content))
+    }
+
     private fun buildDocumentXml(note: Note, structure: ParsedDocumentStructure, hasSignature: Boolean = false): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n")

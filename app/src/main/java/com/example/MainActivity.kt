@@ -44,7 +44,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
 
         val database = NoteDatabase.getInstance(applicationContext)
-        val repository = NoteRepositoryImpl(database.noteDao())
+        val repository = NoteRepositoryImpl(database.noteDao(), database.noteVersionDao())
         val preferencesManager = UserPreferencesManager(applicationContext)
 
         setContent {

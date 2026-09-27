@@ -17,4 +17,7 @@ interface NoteRepository {
     fun getAllFolders(): Flow<List<String>>
     suspend fun getAllNotesForBackup(): List<Note>
     suspend fun restoreNotes(notes: List<Note>)
+    fun getVersionsForNote(noteId: Long): Flow<List<com.example.domain.model.NoteVersion>>
+    suspend fun saveNoteVersion(version: com.example.domain.model.NoteVersion): Long
+    suspend fun deleteVersionById(id: Long)
 }

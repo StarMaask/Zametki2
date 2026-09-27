@@ -385,7 +385,7 @@ object GeminiOcrService {
         }
     }
 
-    private fun parseErrorMessage(errorBody: String, responseCode: Int): String {
+    internal fun parseErrorMessage(errorBody: String, responseCode: Int): String {
         return try {
             val json = JSONObject(errorBody)
             val errObj = json.optJSONObject("error")

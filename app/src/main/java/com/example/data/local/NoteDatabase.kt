@@ -8,12 +8,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [NoteEntity::class],
-    version = 5,
+    entities = [NoteEntity::class, NoteVersionEntity::class],
+    version = 6,
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
+    abstract fun noteVersionDao(): NoteVersionDao
 
     companion object {
         @Volatile

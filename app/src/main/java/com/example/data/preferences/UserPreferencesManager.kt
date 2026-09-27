@@ -59,6 +59,7 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_SIGNATURE_DOCX_ENABLED = booleanPreferencesKey("sig_docx_enabled")
     private val KEY_SIGNATURE_PDF_ENABLED = booleanPreferencesKey("sig_pdf_enabled")
     private val KEY_SIGNATURE_INCLUDE_STAMP = booleanPreferencesKey("sig_include_stamp")
+    private val KEY_CORPORATE_LETTERHEAD = stringPreferencesKey("corporate_letterhead")
 
     private val syncPrefs = context.getSharedPreferences("user_settings_sync", Context.MODE_PRIVATE)
 
@@ -536,5 +537,41 @@ class UserPreferencesManager(private val context: Context) {
     suspend fun setSignatureIncludeStamp(include: Boolean) {
         syncPrefs.edit().putBoolean("sig_include_stamp", include).apply()
         context.dataStore.edit { it[KEY_SIGNATURE_INCLUDE_STAMP] = include }
+    }
+
+    fun getCorporateLetterheadSync(): com.example.domain.model.CorporateLetterhead {
+        val raw = syncPrefs.getString("corporate_letterhead", null)
+        if (!raw.isNullOrBlank()) {
+            return try {
+                profileJson.decodeFromString<com.example.domain.model.CorporateLetterhead>(raw)
+            } catch (_: Exception) {
+                com.example.domain.model.CorporateLetterhead()
+            }
+        }
+        return com.example.domain.model.CorporateLetterhead()
+    }
+
+    val corporateLetterheadFlow: Flow<com.example.domain.model.CorporateLetterhead> = context.dataStore.data.map { prefs ->
+        val raw = prefs[KEY_CORPORATE_LETTERHEAD] ?: syncPrefs.getString("corporate_letterhead", null)
+        if (!raw.isNullOrBlank()) {
+            try {
+                profileJson.decodeFromString<com.example.domain.model.CorporateLetterhead>(raw)
+            } catch (_: Exception) {
+                com.example.domain.model.CorporateLetterhead()
+            }
+        } else {
+            com.example.domain.model.CorporateLetterhead()
+        }
+    }
+
+    suspend fun saveCorporateLetterhead(letterhead: com.example.domain.model.CorporateLetterhead) {
+        val jsonStr = profileJson.encodeToString(letterhead)
+        syncPrefs.edit().putString("corporate_letterhead", jsonStr).apply()
+        context.dataStore.edit { it[KEY_CORPORATE_LETTERHEAD] = jsonStr }
+    }
+
+    fun saveCorporateLetterheadSync(letterhead: com.example.domain.model.CorporateLetterhead) {
+        val jsonStr = profileJson.encodeToString(letterhead)
+        syncPrefs.edit().putString("corporate_letterhead", jsonStr).apply()
     }
 }

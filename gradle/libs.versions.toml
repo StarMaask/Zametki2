@@ -15,8 +15,12 @@ junit = "4.13.2"
 biometric = "1.2.0-alpha05"
 mlkitTextRecognition = "19.0.1"
 mlkitTextRecognitionCyrillic = "16.0.1"
+zxing = "3.5.3"
+mlkitBarcode = "18.3.1"
 
 [libraries]
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+mlkit-barcode-scanning = { group = "com.google.android.gms", name = "play-services-mlkit-barcode-scanning", version.ref = "mlkitBarcode" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

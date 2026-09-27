@@ -92,7 +92,7 @@ data class NoteEditorUiState(
 }
 
 class NoteEditorViewModel(
-    private val repository: NoteRepository,
+    val repository: NoteRepository,
     private val initialNoteId: Long,
     initialTemplate: NoteTemplate? = null,
     private val preferencesManager: com.example.data.preferences.UserPreferencesManager? = null
@@ -476,6 +476,10 @@ class NoteEditorViewModel(
                     } catch (_: Exception) { "" }
                 } else ""
 
+                val hashtagRegex = Regex("#([a-zA-Zа-яА-ЯёЁ0-9_]{2,30})")
+                val detectedTags = hashtagRegex.findAll(state.content).map { it.groupValues[1].lowercase() }.toList()
+                val mergedTags = (state.tags + detectedTags).distinct()
+
                 val note = Note(
                     id = state.noteId,
                     title = state.title,
@@ -487,7 +491,7 @@ class NoteEditorViewModel(
                     createdAt = if (state.createdAt > 0L) state.createdAt else System.currentTimeMillis(),
                     updatedAt = System.currentTimeMillis(),
                     reminderTime = state.reminderTime,
-                    tags = state.tags,
+                    tags = mergedTags,
                     checkListJson = checklistJson,
                     imageUrisJson = imageUrisJson,
                     audioUri = state.audioUri,
@@ -505,6 +509,21 @@ class NoteEditorViewModel(
                     val newId = repository.insertNote(note)
                     _uiState.update { it.copy(noteId = newId) }
                     newId
+                }
+
+                // Auto-save version snapshot on content update
+                if (savedId > 0 && state.content.isNotBlank()) {
+                    try {
+                        repository.saveNoteVersion(
+                            com.example.domain.model.NoteVersion(
+                                noteId = savedId,
+                                title = state.title,
+                                content = state.content,
+                                timestamp = System.currentTimeMillis(),
+                                label = "Автосохранение"
+                            )
+                        )
+                    } catch (_: Exception) {}
                 }
 
                 // Sync with system AlarmManager & Widget safely
@@ -560,5 +579,10 @@ class NoteEditorViewModel(
             }
             onCompleted()
         }
+    }
+
+    fun restoreVersion(title: String, content: String) {
+        _uiState.update { it.copy(title = title, content = content) }
+        onContentChange(content)
     }
 }

@@ -84,7 +84,12 @@ import com.example.presentation.components.TableInsertDialog
 import com.example.presentation.components.OcrScanResultDialog
 import com.example.presentation.components.MultiPhotoOcrDialog
 import com.example.presentation.components.DocumentInsertDialog
+import com.example.presentation.components.AiAcademicSecretaryDialog
 import com.example.presentation.components.AiDocumentExpertDialog
+import com.example.presentation.components.CorporateLetterheadDialog
+import com.example.presentation.components.NoteVersionHistoryDialog
+import com.example.presentation.components.QrBarcodeScannerDialog
+import com.example.presentation.components.QrCodeDocumentDialog
 import com.example.presentation.components.GeminiApiKeyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.SignaturePadDialog
@@ -163,6 +168,11 @@ fun NoteEditorScreen(
     var showUserProfileDialog by remember { mutableStateOf(false) }
     var showRequisitesMenu by remember { mutableStateOf(false) }
     var showSignatureMenu by remember { mutableStateOf(false) }
+    var showAiAcademicSecretaryDialog by remember { mutableStateOf(false) }
+    var showVersionHistoryDialog by remember { mutableStateOf(false) }
+    var showCorporateLetterheadDialog by remember { mutableStateOf(false) }
+    var showQrDocumentDialog by remember { mutableStateOf(false) }
+    var showQrScannerDialog by remember { mutableStateOf(false) }
 
     val preferencesManager = remember { UserPreferencesManager(context) }
     val speechManager = remember { NoteSpeechManager(context) }
@@ -625,6 +635,14 @@ fun NoteEditorScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
 
+                    // 5.5. AI Academic Professor & Secretary
+                    TooltipIconButton(
+                        onClick = { showAiAcademicSecretaryDialog = true },
+                        icon = Icons.Filled.School,
+                        tooltip = "ИИ Профессор всех наук & Секретарь ГОСТ",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+
                     // 6. Overflow Menu (Categorized Submenus)
                     Box {
                         TooltipIconButton(
@@ -736,6 +754,77 @@ fun NoteEditorScreen(
                                     text = { Text("← Назад в главное меню", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) },
                                     onClick = { activeTopSubMenu = null }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🎓 Чат: ИИ Профессор & Секретарь", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Решение всех задач, конспекты, рефераты, ГОСТ документы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.School, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showAiAcademicSecretaryDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🕒 История изменений (Снимки)", fontWeight = FontWeight.SemiBold)
+                                            Text("Точки сохранения и откат к предыдущим версиям", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.History, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showVersionHistoryDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🛡️ QR-код документа (ГОСТ)", fontWeight = FontWeight.SemiBold)
+                                            Text("Паспорт верификации документа, хэш и подпись", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.QrCode, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showQrDocumentDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("📷 Сканер QR и штрихкодов")
+                                            Text("Считывание с фото и вставка данных в заметку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.QrCodeScanner, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showQrScannerDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("🏢 Фирменный бланк организации")
+                                            Text("Шапка компании, реквизиты, полоса и цвета", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Business, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showCorporateLetterheadDialog = true
+                                    }
                                 )
                                 HorizontalDivider()
                                 DropdownMenuItem(
@@ -945,6 +1034,34 @@ fun NoteEditorScreen(
                                         showTopMenu = false
                                         activeTopSubMenu = null
                                         showSignaturePadDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Фирменный бланк организации")
+                                            Text("Настройка шапки компании для документов и PDF", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Business, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showCorporateLetterheadDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("QR-код верификации (ГОСТ)")
+                                            Text("Цифровой паспорт и проверочный штрихкод", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.QrCode, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showQrDocumentDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1867,6 +1984,32 @@ fun NoteEditorScreen(
                                     onClick = {
                                         showInsertMenu = false
                                         showTableInsertDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("QR-код верификации", fontWeight = FontWeight.SemiBold)
+                                            Text("Сгенерировать и вставить QR-паспорт", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.QrCode, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        showQrDocumentDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Сканировать QR / Штрихкод")
+                                            Text("Считать с фото и вставить данные в текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.QrCodeScanner, null) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        showQrScannerDialog = true
                                     }
                                 )
                             }
@@ -3735,6 +3878,65 @@ fun NoteEditorScreen(
                 viewModel.saveNote(context) {
                     Toast.makeText(context, "Текст документа обновлен и сохранен!", Toast.LENGTH_SHORT).show()
                 }
+            }
+        )
+    }
+
+    if (showAiAcademicSecretaryDialog) {
+        AiAcademicSecretaryDialog(
+            initialNote = state.toDomainNote(),
+            repository = viewModel.repository,
+            onDismissRequest = { showAiAcademicSecretaryDialog = false },
+            onInsertTextIntoNote = { inserted ->
+                appendRecognizedText(inserted)
+            }
+        )
+    }
+
+    if (showVersionHistoryDialog) {
+        NoteVersionHistoryDialog(
+            note = state.toDomainNote(),
+            repository = viewModel.repository,
+            onDismissRequest = { showVersionHistoryDialog = false },
+            onRestoreVersion = { resTitle, resContent ->
+                viewModel.restoreVersion(resTitle, resContent)
+                contentTextFieldValue = TextFieldValue(resContent, TextRange(resContent.length))
+                Toast.makeText(context, "Версия успешно восстановлена!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showCorporateLetterheadDialog) {
+        CorporateLetterheadDialog(
+            preferencesManager = preferencesManager,
+            onDismissRequest = { showCorporateLetterheadDialog = false },
+            onSaved = {
+                Toast.makeText(context, "Фирменный бланк сохранён для экспорта в PDF!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showQrDocumentDialog) {
+        QrCodeDocumentDialog(
+            note = state.toDomainNote(),
+            authorName = preferencesManager.getUserProfileSync().fullName,
+            onDismissRequest = { showQrDocumentDialog = false },
+            onInsertQrIntoNote = { qrMd ->
+                val current = contentTextFieldValue.text
+                val updated = current + qrMd
+                contentTextFieldValue = TextFieldValue(updated, TextRange(updated.length))
+                viewModel.onContentChange(updated)
+                Toast.makeText(context, "QR-код верификации вставлен в документ!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showQrScannerDialog) {
+        QrBarcodeScannerDialog(
+            onDismissRequest = { showQrScannerDialog = false },
+            onScannedResult = { text ->
+                appendRecognizedText(text)
+                Toast.makeText(context, "Данные со сканера вставлены в заметку!", Toast.LENGTH_SHORT).show()
             }
         )
     }

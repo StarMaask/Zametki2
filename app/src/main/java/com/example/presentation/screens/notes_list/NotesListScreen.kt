@@ -31,6 +31,7 @@ import com.example.presentation.components.FilterBottomSheet
 import com.example.presentation.components.HelpDialog
 import com.example.presentation.components.NoteCard
 import com.example.presentation.components.NoteTemplateDialog
+import com.example.presentation.components.AiAcademicSecretaryDialog
 import com.example.domain.model.PageFormat
 import com.example.presentation.components.FlashcardStudyDialog
 import com.example.presentation.components.MindMapDialog
@@ -71,7 +72,9 @@ fun NotesListScreen(
     var showMindMapForSelection by remember { mutableStateOf(false) }
     var showStudyStatisticsDialog by remember { mutableStateOf(false) }
     var showFocusTimerDialog by remember { mutableStateOf(false) }
+    var showAiAcademicSecretaryDialog by remember { mutableStateOf(false) }
     var noteToShare by remember { mutableStateOf<Note?>(null) }
+    val deletedNotes by viewModel.repository.getDeletedNotes().collectAsState(initial = emptyList())
 
     var targetLockedNoteId by remember { mutableStateOf<Long?>(null) }
     var showPinVerifyDialog by remember { mutableStateOf(false) }
@@ -271,6 +274,21 @@ fun NotesListScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Column {
+                                                Text("🎓 ИИ Профессор & Секретарь", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                Text("Решение всех задач, конспекты, ГОСТ, экспорт .doc / .xls", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.School, null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            showAiAcademicSecretaryDialog = true
+                                        }
+                                    )
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
                                                 Text("📁 Управление заметками", fontWeight = FontWeight.SemiBold)
                                                 Text("Архив, корзина, хранилище", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
@@ -435,6 +453,14 @@ fun NotesListScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                SmallFloatingActionButton(
+                    onClick = { showAiAcademicSecretaryDialog = true },
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                ) {
+                    Icon(imageVector = Icons.Filled.School, contentDescription = "ИИ Профессор и Секретарь")
+                }
+
                 SmallFloatingActionButton(
                     onClick = { showTemplateDialog = true },
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -879,6 +905,15 @@ fun NotesListScreen(
             noteContent = combinedContent,
             onDismissRequest = { showMindMapForSelection = false },
             onNavigateToOffset = null
+        )
+    }
+
+    if (showAiAcademicSecretaryDialog) {
+        AiAcademicSecretaryDialog(
+            initialNote = null,
+            repository = viewModel.repository,
+            onDismissRequest = { showAiAcademicSecretaryDialog = false },
+            onInsertTextIntoNote = null
         )
     }
 }

@@ -50,8 +50,11 @@ fun PdfExportDialog(
     var includeSignature by remember { mutableStateOf(hasSignature) }
     var includeStamp by remember { mutableStateOf(false) }
     var showSignaturePad by remember { mutableStateOf(false) }
+    var includeCorporateLetterhead by remember { mutableStateOf(com.example.data.preferences.UserPreferencesManager(context).getCorporateLetterheadSync().isEnabled) }
+    var includeVerificationQr by remember { mutableStateOf(false) }
+    var showLetterheadDialog by remember { mutableStateOf(false) }
 
-    val config = remember(selectedTheme, includeMetadata, includeImages, includePageNumbers, includeChecklist, includeSignature, includeStamp) {
+    val config = remember(selectedTheme, includeMetadata, includeImages, includePageNumbers, includeChecklist, includeSignature, includeStamp, includeCorporateLetterhead, includeVerificationQr) {
         PdfExportConfig(
             theme = selectedTheme,
             includeMetadata = includeMetadata,
@@ -59,7 +62,19 @@ fun PdfExportDialog(
             includePageNumbers = includePageNumbers,
             includeChecklist = includeChecklist,
             includeSignature = includeSignature,
-            includeStamp = includeStamp
+            includeStamp = includeStamp,
+            includeCorporateLetterhead = includeCorporateLetterhead,
+            includeVerificationQr = includeVerificationQr
+        )
+    }
+
+    if (showLetterheadDialog) {
+        CorporateLetterheadDialog(
+            preferencesManager = com.example.data.preferences.UserPreferencesManager(context),
+            onDismissRequest = { showLetterheadDialog = false },
+            onSaved = {
+                includeCorporateLetterhead = true
+            }
         )
     }
 
@@ -425,6 +440,42 @@ fun PdfExportDialog(
                             }
                             Checkbox(checked = includeStamp, onCheckedChange = { includeStamp = it })
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Corporate Letterhead & Verification QR
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("🏢 Фирменный бланк организации", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Печать шапки компании / ВУЗа с контактами и акцентной полосой", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { showLetterheadDialog = true }) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Настроить бланк", modifier = Modifier.size(18.dp))
+                            }
+                            Switch(checked = includeCorporateLetterhead, onCheckedChange = { includeCorporateLetterhead = it })
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("🛡️ Проверочный QR-код (ГОСТ ЭЦП)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Печать цифрового штампа верификации с хэшем и датой внизу страницы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = includeVerificationQr, onCheckedChange = { includeVerificationQr = it })
                     }
                 }
 

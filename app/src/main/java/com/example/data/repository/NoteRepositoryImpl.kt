@@ -2,13 +2,18 @@ package com.example.data.repository
 
 import com.example.data.local.NoteDao
 import com.example.data.local.NoteEntity
+import com.example.data.local.NoteVersionDao
+import com.example.data.local.NoteVersionEntity
 import com.example.domain.model.Note
+import com.example.domain.model.NoteVersion
 import com.example.domain.repository.NoteRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 
 class NoteRepositoryImpl(
-    private val dao: NoteDao
+    private val dao: NoteDao,
+    private val versionDao: NoteVersionDao? = null
 ) : NoteRepository {
 
     override fun getActiveNotes(): Flow<List<Note>> {
@@ -61,5 +66,17 @@ class NoteRepositoryImpl(
 
     override suspend fun restoreNotes(notes: List<Note>) {
         dao.insertNotes(notes.map { NoteEntity.fromDomain(it) })
+    }
+
+    override fun getVersionsForNote(noteId: Long): Flow<List<NoteVersion>> {
+        return versionDao?.getVersionsForNote(noteId)?.map { list -> list.map { it.toDomain() } } ?: emptyFlow()
+    }
+
+    override suspend fun saveNoteVersion(version: NoteVersion): Long {
+        return versionDao?.insertVersion(NoteVersionEntity.fromDomain(version)) ?: 0L
+    }
+
+    override suspend fun deleteVersionById(id: Long) {
+        versionDao?.deleteVersionById(id)
     }
 }
