@@ -345,9 +345,43 @@ object AiAcademicAndSecretaryService {
             val responseCode = connection.responseCode
             if (responseCode in 200..299) {
                 val responseText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val parsed = parseResponseText(responseText)
-                if (parsed.isNotBlank()) {
-                    Result.success(parsed)
+                val parsed = parseCandidate(responseText)
+                if (parsed != null && parsed.text.isNotBlank()) {
+                    var fullText = parsed.text
+                    var currentFinishReason = parsed.finishReason
+
+                    // If document was cut off because of token limit, auto-continue up to 2 times
+                    // to generate the entire, complete academic/official document without abrupt ending!
+                    var continuationCount = 0
+                    while ((currentFinishReason == "MAX_TOKENS" || currentFinishReason == "LENGTH") && continuationCount < 2) {
+                        continuationCount++
+                        val continuationResult = executeContinuationRequest(
+                            model = model,
+                            apiKey = apiKey,
+                            systemInstruction = systemInstruction,
+                            history = history,
+                            initialUserPrompt = latestUserText,
+                            generatedSoFar = fullText
+                        )
+                        if (continuationResult.isSuccess) {
+                            val nextPart = continuationResult.getOrThrow()
+                            if (nextPart.text.isNotBlank()) {
+                                val nextChunk = nextPart.text.trim()
+                                fullText = if (fullText.endsWith("\n") || fullText.endsWith(" ")) {
+                                    fullText + nextChunk
+                                } else {
+                                    fullText + "\n\n" + nextChunk
+                                }
+                                currentFinishReason = nextPart.finishReason
+                            } else {
+                                break
+                            }
+                        } else {
+                            break
+                        }
+                    }
+
+                    Result.success(fullText)
                 } else {
                     Result.failure(Exception("Сервер ИИ вернул пустой ответ."))
                 }
@@ -363,23 +397,140 @@ object AiAcademicAndSecretaryService {
         }
     }
 
-    private fun parseResponseText(responseJson: String): String {
+    private fun executeContinuationRequest(
+        model: String,
+        apiKey: String,
+        systemInstruction: String,
+        history: List<DialogueMessage>,
+        initialUserPrompt: String,
+        generatedSoFar: String
+    ): Result<ParsedCandidate> {
+        var connection: HttpURLConnection? = null
+        return try {
+            val urlString = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+            val url = URL(urlString)
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connectTimeout = 60000
+                readTimeout = 90000
+                doOutput = true
+                doInput = true
+            }
+
+            val requestJson = JSONObject().apply {
+                put("systemInstruction", JSONObject().apply {
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", systemInstruction)
+                        })
+                    })
+                })
+
+                val contentsArray = JSONArray()
+
+                for (msg in history) {
+                    val contentObj = JSONObject().apply {
+                        put("role", if (msg.role == "model") "model" else "user")
+                        val parts = JSONArray()
+                        parts.put(JSONObject().apply {
+                            put("text", msg.text)
+                        })
+                        put("parts", parts)
+                    }
+                    contentsArray.put(contentObj)
+                }
+
+                // Initial user turn
+                contentsArray.put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply { put("text", initialUserPrompt) })
+                    })
+                })
+
+                // Partial model response
+                contentsArray.put(JSONObject().apply {
+                    put("role", "model")
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply { put("text", generatedSoFar) })
+                    })
+                })
+
+                // Continuation request
+                contentsArray.put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put(
+                                "text",
+                                "Текст документа прервался из-за лимита токенов. " +
+                                "Продолжай строго с места прерывания. " +
+                                "НЕ повторяй уже написанное, НЕ пиши вводных фраз или комментариев. " +
+                                "Допиши следующие разделы, выводы, список использованных источников и приложения по ГОСТ в полном объеме до логического завершения."
+                            )
+                        })
+                    })
+                })
+
+                put("contents", contentsArray)
+
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.35)
+                    put("topP", 0.95)
+                    put("maxOutputTokens", 8192)
+                })
+            }
+
+            connection.outputStream.use { os ->
+                os.write(requestJson.toString().toByteArray(Charsets.UTF_8))
+                os.flush()
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode in 200..299) {
+                val responseText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val parsed = parseCandidate(responseText)
+                if (parsed != null && parsed.text.isNotBlank()) {
+                    Result.success(parsed)
+                } else {
+                    Result.failure(Exception("Пустой ответ при авто-продолжении документа"))
+                }
+            } else {
+                val errorStream = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                val errorMessage = GeminiOcrService.parseErrorMessage(errorStream, responseCode)
+                Result.failure(Exception(errorMessage))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    data class ParsedCandidate(
+        val text: String,
+        val finishReason: String
+    )
+
+    private fun parseCandidate(responseJson: String): ParsedCandidate? {
         return try {
             val root = JSONObject(responseJson)
-            val candidates = root.optJSONArray("candidates") ?: return ""
-            if (candidates.length() == 0) return ""
+            val candidates = root.optJSONArray("candidates") ?: return null
+            if (candidates.length() == 0) return null
             val firstCandidate = candidates.getJSONObject(0)
-            val content = firstCandidate.optJSONObject("content") ?: return ""
-            val parts = content.optJSONArray("parts") ?: return ""
+            val finishReason = firstCandidate.optString("finishReason", "")
+            val content = firstCandidate.optJSONObject("content") ?: return null
+            val parts = content.optJSONArray("parts") ?: return null
             val sb = StringBuilder()
             for (i in 0 until parts.length()) {
                 val part = parts.getJSONObject(i)
                 val text = part.optString("text", "")
                 sb.append(text)
             }
-            sb.toString()
+            ParsedCandidate(text = sb.toString(), finishReason = finishReason)
         } catch (_: Exception) {
-            ""
+            null
         }
     }
 }

@@ -3,6 +3,8 @@ package com.example.presentation.components
 import android.content.Context
 import android.content.Intent
 import android.os.Environment
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -29,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,7 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
 import com.example.domain.model.AiAttachment
 import com.example.domain.model.Note
 import com.example.domain.repository.NoteRepository
@@ -148,6 +153,7 @@ fun AiAcademicSecretaryDialog(
 
     val refinementChips = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) {
         listOf(
+            "⏩ Продолжить с места обрыва / Дописать следующие разделы",
             "Добавь титульный лист, содержание и перечень сокращений по ГОСТ",
             "Оформи список источников строго по ГОСТ 7.0.5-2008",
             "Распиши подробнее математические выкладки и формулы",
@@ -156,6 +162,7 @@ fun AiAcademicSecretaryDialog(
         )
     } else {
         listOf(
+            "⏩ Продолжить с места обрыва / Дописать следующие разделы",
             "Оформи строго по ГОСТ Р 7.0.97-2016 со всеми реквизитами",
             "Добавь спецификацию в виде расчетной таблицы",
             "Добавь пункт об ответственности сторон и неустойке",
@@ -245,6 +252,20 @@ fun AiAcademicSecretaryDialog(
         )
     }
 
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = (view.parent as? DialogWindowProvider)?.window
+        if (window != null) {
+            window.setLayout(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+        }
+        onDispose {}
+    }
+
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
@@ -255,16 +276,16 @@ fun AiAcademicSecretaryDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
-                .systemBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .background(Color.Black.copy(alpha = 0.55f))
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .windowInsetsPadding(WindowInsets.ime)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(),
-                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
@@ -703,7 +724,8 @@ fun AiAcademicSecretaryDialog(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(bottom = 6.dp)
                         ) {
                             items(messages, key = { it.id }) { msg ->
                                 if (msg.isUser) {
@@ -717,7 +739,10 @@ fun AiAcademicSecretaryDialog(
                                         selectedRole = selectedRole,
                                         repository = repository,
                                         onInsertTextIntoNote = onInsertTextIntoNote,
-                                        onDismissRequest = onDismissRequest
+                                        onDismissRequest = onDismissRequest,
+                                        onContinueGeneration = {
+                                            sendMessage("Продолжи составление документа строго с того места, где он прервался. Напиши оставшиеся разделы, заключение, список использованных источников и приложения по ГОСТ.")
+                                        }
                                     )
                                 }
                             }
@@ -789,189 +814,200 @@ fun AiAcademicSecretaryDialog(
                                     }
                                 }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // Refinement suggestions chips for continuing dialogue
-                        if (!isLoading) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    text = "💡 Добавить нюанс или доработать документ:",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    refinementChips.forEach { chip ->
-                                        SuggestionChip(
-                                            onClick = { sendMessage(chip) },
-                                            label = { Text(chip, fontSize = 11.5.sp) }
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-
-                        // Pending Attachments Bar in dialogue mode
-                        if (pendingAttachments.isNotEmpty()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                pendingAttachments.forEach { att ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                            // Refinement suggestions chips inside scrollable history right below messages
+                            if (!isLoading && messages.isNotEmpty()) {
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp, bottom = 4.dp)
                                     ) {
+                                        Text(
+                                            text = "💡 Добавить нюанс или доработать документ:",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = if (att.isImage) Icons.Filled.Image else Icons.Filled.Description,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                            Text(
-                                                text = att.name,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.widthIn(max = 120.dp)
-                                            )
-                                            IconButton(
-                                                onClick = { pendingAttachments = pendingAttachments - att },
-                                                modifier = Modifier.size(16.dp)
-                                            ) {
-                                                Icon(Icons.Filled.Close, contentDescription = "Удалить", modifier = Modifier.size(12.dp))
+                                            refinementChips.forEach { chip ->
+                                                SuggestionChip(
+                                                    onClick = { sendMessage(chip) },
+                                                    label = { Text(chip, fontSize = 11.5.sp) }
+                                                )
                                             }
                                         }
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
                         }
 
-                        // Processing indicator for attachments in dialogue mode
-                        if (isProcessingAttachment) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Считывание документа/фото...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
+                        Spacer(modifier = Modifier.height(4.dp))
 
-                        // CONTINUING DIALOGUE COMPOSER DOCK (Поле ввода для продолжения диалога)
+                        // PINNED BOTTOM COMPOSER DOCK (Всегда на виду внизу экрана над панелью навигации и клавиатурой)
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            tonalElevation = 4.dp,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.Bottom
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                // Attachment menu button
-                                Box {
-                                    IconButton(
-                                        onClick = { showAttachmentMenu = true },
+                                // Pending Attachments Bar in dialogue mode
+                                if (pendingAttachments.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        pendingAttachments.forEach { att ->
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (att.isImage) Icons.Filled.Image else Icons.Filled.Description,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Text(
+                                                        text = att.name,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.widthIn(max = 120.dp)
+                                                    )
+                                                    IconButton(
+                                                        onClick = { pendingAttachments = pendingAttachments - att },
+                                                        modifier = Modifier.size(16.dp)
+                                                    ) {
+                                                        Icon(Icons.Filled.Close, contentDescription = "Удалить", modifier = Modifier.size(12.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+
+                                // Processing indicator for attachments in dialogue mode
+                                if (isProcessingAttachment) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Считывание документа/фото...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+
+                                // Composer Row: Attachment + Input Field + Send Button
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Attachment menu button
+                                    Box {
+                                        IconButton(
+                                            onClick = { showAttachmentMenu = true },
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.AttachFile,
+                                                contentDescription = "Прикрепить фото или документ",
+                                                tint = if (pendingAttachments.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        DropdownMenu(
+                                            expanded = showAttachmentMenu,
+                                            onDismissRequest = { showAttachmentMenu = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("📷 Фото / Скан задания") },
+                                                leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null) },
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    photoPickerLauncher.launch(
+                                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                    )
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("📄 Документ (PDF, Word, Текст)") },
+                                                leadingIcon = { Icon(Icons.Filled.Description, null) },
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    documentPickerLauncher.launch(
+                                                        arrayOf(
+                                                            "application/pdf",
+                                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                                            "text/*",
+                                                            "application/msword"
+                                                        )
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    // Text input field
+                                    OutlinedTextField(
+                                        value = promptInput,
+                                        onValueChange = { promptInput = it },
+                                        placeholder = {
+                                            Text(
+                                                text = if (pendingAttachments.isNotEmpty())
+                                                    "Уточнение к материалам..."
+                                                else
+                                                    "Продолжить диалог, добавить нюанс...",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = 4.dp),
+                                        maxLines = 3,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+
+                                    // Send Button
+                                    FilledIconButton(
+                                        onClick = { sendMessage() },
+                                        enabled = (promptInput.isNotBlank() || pendingAttachments.isNotEmpty()) && !isLoading && !isProcessingAttachment,
                                         modifier = Modifier.size(40.dp)
                                     ) {
                                         Icon(
-                                            Icons.Filled.AttachFile,
-                                            contentDescription = "Прикрепить фото или документ",
-                                            tint = if (pendingAttachments.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            Icons.Filled.Send,
+                                            contentDescription = "Отправить",
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
-                                    DropdownMenu(
-                                        expanded = showAttachmentMenu,
-                                        onDismissRequest = { showAttachmentMenu = false }
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("📷 Фото / Скан задания") },
-                                            leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null) },
-                                            onClick = {
-                                                showAttachmentMenu = false
-                                                photoPickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("📄 Документ (PDF, Word, Текст)") },
-                                            leadingIcon = { Icon(Icons.Filled.Description, null) },
-                                            onClick = {
-                                                showAttachmentMenu = false
-                                                documentPickerLauncher.launch(
-                                                    arrayOf(
-                                                        "application/pdf",
-                                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                                        "text/*",
-                                                        "application/msword"
-                                                    )
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-
-                                // Text input field
-                                OutlinedTextField(
-                                    value = promptInput,
-                                    onValueChange = { promptInput = it },
-                                    placeholder = {
-                                        Text(
-                                            text = if (pendingAttachments.isNotEmpty())
-                                                "Уточнение к материалам..."
-                                            else
-                                                "Продолжить диалог, добавить нюанс...",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(horizontal = 4.dp),
-                                    maxLines = 4,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-
-                                // Send Button
-                                FilledIconButton(
-                                    onClick = { sendMessage() },
-                                    enabled = (promptInput.isNotBlank() || pendingAttachments.isNotEmpty()) && !isLoading && !isProcessingAttachment,
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Send,
-                                        contentDescription = "Отправить",
-                                        modifier = Modifier.size(18.dp)
-                                    )
                                 }
                             }
                         }
@@ -1044,7 +1080,8 @@ private fun ModelMessageCard(
     selectedRole: AiAcademicAndSecretaryService.AssistantRole,
     repository: NoteRepository?,
     onInsertTextIntoNote: ((String) -> Unit)?,
-    onDismissRequest: () -> Unit
+    onDismissRequest: () -> Unit,
+    onContinueGeneration: (() -> Unit)? = null
 ) {
     var isSavedInApp by remember { mutableStateOf(false) }
 
@@ -1144,6 +1181,29 @@ private fun ModelMessageCard(
                     markdownText = message.text,
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+            // Quick Continue Button to expand / complete the document without missing parts
+            if (onContinueGeneration != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                FilledTonalButton(
+                    onClick = onContinueGeneration,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Filled.FastForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "⏩ Продолжить составление / Дописать следующие разделы",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.5.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
