@@ -3,6 +3,7 @@ package com.example.util
 import android.content.Context
 import com.example.BuildConfig
 import com.example.data.preferences.UserPreferencesManager
+import com.example.domain.model.AiAttachment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -13,9 +14,9 @@ import java.net.URL
 object AiAcademicAndSecretaryService {
 
     private val REASONING_MODELS = listOf(
-        "gemini-3.5-flash",
-        "gemini-3.1-pro-preview",
-        "gemini-flash-latest"
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
     )
 
     enum class AssistantRole(
@@ -31,21 +32,22 @@ object AiAcademicAndSecretaryService {
                 Твоя цель — дать глубокий, академически безупречный, развернутый и понятный ответ на русском языке по любой науке (высшая математика, физика, химия, информатика и алгоритмы, теоретическая механика, экономика, биология, философия, история).
                 
                 Правила работы:
-                1. ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПРОСИТ РЕШИТЬ ЗАДАЧУ:
+                1. ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПРОСИТ РЕШИТЬ ЗАДАЧУ (или прикрепил фото/скан/документ с задачей):
+                   - Внимательно изучи все прикрепленные изображения, условия, графики, чертежи, формулы и текст.
                    - Оформи решение со строгой академической структурой:
-                     ### Условие и постановка задачи
-                     ### Дано и Найти
-                     ### Необходимые формулы, теоремы и законы
-                     ### Пошаговое подробное решение (каждый шаг с формулами и выкладками, используй LaTeX-нотацию или понятную математическую разметку, например E = mc^2, интегралы, дроби и матрицы)
-                     ### Анализ полученного результата и проверка
+                     ### Условие и постановка задачи (полная формулировка с расшифровкой)
+                     ### Дано и Найти (все исходные величины, единицы измерения в СИ)
+                     ### Необходимые формулы, теоремы и законы (с обоснованием их применимости)
+                     ### Пошаговое подробное решение (каждый шаг с формулами и выкладками, используй понятную математическую разметку, интегралы, дроби, матрицы и пояснения к каждому арифметическому действию)
+                     ### Анализ полученного результата, физический/экономический смысл и проверка
                      ### Окончательный ответ (выдели жирным шрифтом)
                 
-                2. ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПРОСИТ НАПИСАТЬ КОНСПЕКТ:
+                2. ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПРОСИТ НАПИСАТЬ КОНСПЕКТ (или прикрепил материалы лекций/статьи):
                    - Сделай глубокий структурированный конспект:
-                     - Тема и цель
-                     - Основные термины и определения
-                     - Ключевые положения и доказательства
-                     - Наглядные примеры и формулы
+                     - Тема и цель изучения
+                     - Основные термины, определения и понятийный аппарат
+                     - Ключевые положения, доказательства и законы
+                     - Наглядные примеры, формулы и графические схемы
                      - Сравнительная таблица (в формате Markdown | ... |)
                      - Итоговые выводы и контрольные вопросы для самопроверки
                 
@@ -57,7 +59,12 @@ object AiAcademicAndSecretaryService {
                      - Заключение: Основные результаты, научная и практическая значимость.
                      - Список использованных источников (оформленный по ГОСТ 7.0.5-2008).
                 
-                4. Всегда давай максимально полные, фундаментальные и развернутые ответы, не сокращая выкладки и логические переходы.
+                4. ИСПОЛЬЗОВАНИЕ ПРИКРЕПЛЕННЫХ ФАЙЛОВ И ДОКУМЕНТОВ:
+                   - Тщательно проанализируй все прикрепленные фотографии, сканы, страницы учебников, PDF или тексты.
+                   - Используй данные из них как основу для решения или подготовки ответа.
+                
+                5. ПОЛНОТА И РАЗВЕРНУТОСТЬ:
+                   - Всегда давай максимально полные, фундаментальные и развернутые ответы, не сокращая выкладки и логические переходы. Никаких отговорок «и так далее» или «аналогично» — расписывай всё подробно и качественно.
             """.trimIndent()
         ),
         SECRETARY(
@@ -80,8 +87,13 @@ object AiAcademicAndSecretaryService {
                    - Резолютивная / просительная часть («На основании изложенного прошу...», «Постановляю...»)
                    - Заключительный блок подписей сторон и расшифровки
                 
-                2. Тон и стиль: строго официальный, дипломатичный, емкий, исключающий двусмысленность толкования.
-                3. Ответ должен быть полностью готовым к печати документом.
+                2. АНАЛИЗ ПРИКРЕПЛЕННЫХ ДОКУМЕНТОВ:
+                   - Если пользователь прикрепил договор, скан заявления, акт или накладную:
+                     * Проверь юридическую чистоту, соответствие ГОСТ, наличие обязательных реквизитов.
+                     * Исправь ошибки и выдай полный, готовый исправленный чистовик документа.
+                
+                3. Тон и стиль: строго официальный, дипломатичный, емкий, исключающий двусмысленность толкования.
+                4. Ответ должен быть полностью готовым к печати развернутым документом без сокращений.
             """.trimIndent()
         )
     }
@@ -91,6 +103,7 @@ object AiAcademicAndSecretaryService {
         role: AssistantRole,
         userPrompt: String,
         contextText: String? = null,
+        attachments: List<AiAttachment> = emptyList(),
         customApiKey: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = customApiKey?.trim()?.takeIf { it.isNotBlank() }
@@ -103,12 +116,29 @@ object AiAcademicAndSecretaryService {
         }
 
         val promptBuilder = StringBuilder()
+
         if (!contextText.isNullOrBlank()) {
             promptBuilder.append("КОНТЕКСТ ТЕКУЩЕГО ДОКУМЕНТА / ЗАМЕТКИ:\n")
             promptBuilder.append("\"\"\"\n")
-            promptBuilder.append(contextText.take(15000))
+            promptBuilder.append(contextText)
             promptBuilder.append("\n\"\"\"\n\n")
         }
+
+        // Add text extracted from text-based or OCR attachments
+        val textAttachments = attachments.filter { !it.extractedText.isNullOrBlank() }
+        if (textAttachments.isNotEmpty()) {
+            promptBuilder.append("ПРИКРЕПЛЕННЫЕ МАТЕРИАЛЫ И ДОКУМЕНТЫ (ИЗВЛЕЧЕННЫЙ ТЕКСТ):\n")
+            for (att in textAttachments) {
+                promptBuilder.append("--- Документ: ${att.name} (${att.typeLabel}) ---\n")
+                promptBuilder.append(att.extractedText)
+                promptBuilder.append("\n-----------------------------------------------\n\n")
+            }
+        }
+
+        if (attachments.any { it.isImage || it.isPdf }) {
+            promptBuilder.append("К запросу прикреплены файлы изображений/сканов/PDF (переданы во вложении). Тщательно изучи их содержимое.\n\n")
+        }
+
         promptBuilder.append("ЗАДАНИЕ ПОЛЬЗОВАТЕЛЯ:\n")
         promptBuilder.append(userPrompt.trim())
 
@@ -116,7 +146,7 @@ object AiAcademicAndSecretaryService {
 
         var lastError = "Не удалось получить ответ от ИИ"
         for (model in REASONING_MODELS) {
-            val result = executeRequest(model, apiKey, role.systemPrompt, fullPrompt)
+            val result = executeRequest(model, apiKey, role.systemPrompt, fullPrompt, attachments)
             if (result.isSuccess) {
                 return@withContext result
             }
@@ -130,7 +160,8 @@ object AiAcademicAndSecretaryService {
         model: String,
         apiKey: String,
         systemInstruction: String,
-        userContent: String
+        userContent: String,
+        attachments: List<AiAttachment>
     ): Result<String> {
         var connection: HttpURLConnection? = null
         return try {
@@ -139,8 +170,8 @@ object AiAcademicAndSecretaryService {
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                connectTimeout = 40000
-                readTimeout = 65000
+                connectTimeout = 60000
+                readTimeout = 90000
                 doOutput = true
                 doInput = true
             }
@@ -155,11 +186,26 @@ object AiAcademicAndSecretaryService {
                 })
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("text", userContent)
-                            })
+                        val parts = JSONArray()
+
+                        // Text part
+                        parts.put(JSONObject().apply {
+                            put("text", userContent)
                         })
+
+                        // Multimodal parts (images and PDFs)
+                        for (att in attachments) {
+                            if (!att.base64Data.isNullOrBlank()) {
+                                parts.put(JSONObject().apply {
+                                    put("inlineData", JSONObject().apply {
+                                        put("mimeType", att.mimeType)
+                                        put("data", att.base64Data)
+                                    })
+                                })
+                            }
+                        }
+
+                        put("parts", parts)
                     })
                 })
                 put("generationConfig", JSONObject().apply {
@@ -215,3 +261,4 @@ object AiAcademicAndSecretaryService {
         }
     }
 }
+

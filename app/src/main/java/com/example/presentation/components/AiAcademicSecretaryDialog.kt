@@ -3,6 +3,9 @@ package com.example.presentation.components
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -30,9 +33,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import com.example.domain.model.AiAttachment
 import com.example.domain.model.Note
 import com.example.domain.repository.NoteRepository
 import com.example.util.AiAcademicAndSecretaryService
+import com.example.util.AiAttachmentHelper
 import com.example.util.DocxGenerator
 import com.example.util.GeminiOcrService
 import com.example.util.ShareExportUtil
@@ -55,6 +60,8 @@ fun AiAcademicSecretaryDialog(
     var selectedRole by remember { mutableStateOf(AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) }
     var promptInput by remember { mutableStateOf("") }
     var includeNoteContext by remember { mutableStateOf(initialNote != null && initialNote.content.isNotBlank()) }
+    var attachments by remember { mutableStateOf<List<AiAttachment>>(emptyList()) }
+    var isProcessingAttachment by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(false) }
     var responseText by remember { mutableStateOf("") }
@@ -62,6 +69,50 @@ fun AiAcademicSecretaryDialog(
     var showApiKeyDialog by remember { mutableStateOf(false) }
 
     val hasApiKey = remember { GeminiOcrService.hasAvailableApiKey(context) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                isProcessingAttachment = true
+                val newAttachments = mutableListOf<AiAttachment>()
+                for (uri in uris) {
+                    val res = AiAttachmentHelper.processAttachment(context, uri)
+                    if (res.isSuccess) {
+                        newAttachments.add(res.getOrThrow())
+                    }
+                }
+                attachments = attachments + newAttachments
+                isProcessingAttachment = false
+                if (newAttachments.isNotEmpty()) {
+                    Toast.makeText(context, "Фотографий/сканов добавлено: ${newAttachments.size}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                isProcessingAttachment = true
+                val newAttachments = mutableListOf<AiAttachment>()
+                for (uri in uris) {
+                    val res = AiAttachmentHelper.processAttachment(context, uri)
+                    if (res.isSuccess) {
+                        newAttachments.add(res.getOrThrow())
+                    }
+                }
+                attachments = attachments + newAttachments
+                isProcessingAttachment = false
+                if (newAttachments.isNotEmpty()) {
+                    Toast.makeText(context, "Документов загружено: ${newAttachments.size}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     val professorChips = listOf(
         "Решить математическую задачу по шагам с формулами",
@@ -82,8 +133,15 @@ fun AiAcademicSecretaryDialog(
     )
 
     fun executeAiRequest(customPrompt: String? = null) {
-        val promptToUse = customPrompt ?: promptInput.trim()
-        if (promptToUse.isBlank()) return
+        val userText = customPrompt ?: promptInput.trim()
+        val promptToUse = when {
+            userText.isNotBlank() -> userText
+            attachments.isNotEmpty() && selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ->
+                "Внимательно изучи все прикрепленные материалы, фотографии, формулы или документы. Если это условия задач — подробно реши каждую задачу по всем шагам со всеми формулами, выкладками, пояснениями и проверкой. Если это конспект или учебный материал — составь глубокий академический конспект или реферат."
+            attachments.isNotEmpty() && selectedRole == AiAcademicAndSecretaryService.AssistantRole.SECRETARY ->
+                "Внимательно изучи прикрепленный документ или скан. Проверь его структуру и оформление на соответствие ГОСТ Р 7.0.97-2016, выяви ошибки или неточности и составь идеальный чистовик документа с правильными реквизитами."
+            else -> return
+        }
 
         if (!GeminiOcrService.hasAvailableApiKey(context)) {
             showApiKeyDialog = true
@@ -101,7 +159,8 @@ fun AiAcademicSecretaryDialog(
                 context = context,
                 role = selectedRole,
                 userPrompt = promptToUse,
-                contextText = contextText
+                contextText = contextText,
+                attachments = attachments
             )
 
             isLoading = false
@@ -244,16 +303,164 @@ fun AiAcademicSecretaryDialog(
                         onValueChange = { promptInput = it },
                         placeholder = {
                             Text(
-                                if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+                                if (attachments.isNotEmpty()) {
+                                    "Задайте уточнение к прикрепленным материалам (или нажмите кнопку ниже для полного разбора)..."
+                                } else if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) {
                                     "Опишите задачу по математике, физике, тему конспекта, реферата или диплома..."
-                                else
+                                } else {
                                     "Опишите вид документа: заявление, служебная записка, акт или договор..."
+                                }
                             )
                         },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2,
                         maxLines = 4
                     )
+
+                    // Attachment Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Фото / Скан", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                documentPickerLauncher.launch(
+                                    arrayOf(
+                                        "application/pdf",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "text/*",
+                                        "application/msword"
+                                    )
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Документ", fontSize = 12.sp)
+                        }
+                    }
+
+                    // Processing Attachments Indicator
+                    if (isProcessingAttachment) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Считывание и обработка прикрепленного документа/фото...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+
+                    // Attachments List Display
+                    if (attachments.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Прикреплено для считывания (${attachments.size}):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Очистить всё",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.clickable { attachments = emptyList() }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                attachments.forEach { att ->
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        tonalElevation = 1.dp
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = when {
+                                                    att.isImage -> Icons.Filled.Image
+                                                    att.isPdf -> Icons.Filled.PictureAsPdf
+                                                    att.name.endsWith(".docx", ignoreCase = true) -> Icons.Filled.Article
+                                                    else -> Icons.Filled.Description
+                                                },
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = att.name,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 140.dp)
+                                                )
+                                                Text(
+                                                    text = "${att.typeLabel} ${if (att.formattedSize.isNotBlank()) "• ${att.formattedSize}" else ""}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { attachments = attachments - att },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Close, contentDescription = "Удалить", modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Context toggle
                     if (initialNote != null && initialNote.content.isNotBlank()) {
@@ -280,7 +487,7 @@ fun AiAcademicSecretaryDialog(
                     // Submit Button
                     Button(
                         onClick = { executeAiRequest() },
-                        enabled = promptInput.isNotBlank() && !isLoading,
+                        enabled = (promptInput.isNotBlank() || attachments.isNotEmpty()) && !isLoading && !isProcessingAttachment,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isLoading) {
@@ -294,7 +501,12 @@ fun AiAcademicSecretaryDialog(
                         } else {
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Получить развернутый ответ / решение")
+                            Text(
+                                if (attachments.isNotEmpty() && promptInput.isBlank())
+                                    "Решить / Обработать прикрепленные материалы"
+                                else
+                                    "Получить развернутый ответ / решение"
+                            )
                         }
                     }
 
@@ -385,10 +597,14 @@ fun AiAcademicSecretaryDialog(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        val baseTitle = promptInput.lines().firstOrNull()?.take(30)?.trim()
+                            ?.ifBlank { attachments.firstOrNull()?.name?.substringBeforeLast(".") }
+                            ?: (if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Научный_материал" else "Официальный_документ")
+
                         // Word .docx
                         FilledTonalButton(
                             onClick = {
-                                exportToDocx(context, promptInput.take(25).ifBlank { "Документ" }, responseText)
+                                exportToDocx(context, baseTitle, responseText)
                             },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
@@ -397,22 +613,34 @@ fun AiAcademicSecretaryDialog(
                             Text("Word (.docx)", fontSize = 11.5.sp)
                         }
 
+                        // Word .doc (RTF)
+                        FilledTonalButton(
+                            onClick = {
+                                exportToRtfDoc(context, baseTitle, responseText)
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Filled.Article, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Word (.doc)", fontSize = 11.5.sp)
+                        }
+
                         // Excel .xlsx
                         FilledTonalButton(
                             onClick = {
-                                exportToXlsx(context, promptInput.take(25).ifBlank { "Таблица" }, responseText)
+                                exportToXlsx(context, baseTitle, responseText)
                             },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Icon(Icons.Filled.TableChart, null, modifier = Modifier.size(16.dp), tint = Color(0xFF2E7D32))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Excel (.xlsx)", fontSize = 11.5.sp)
+                            Text("Excel (.xls/.xlsx)", fontSize = 11.5.sp)
                         }
 
                         // PDF
                         FilledTonalButton(
                             onClick = {
-                                exportToPdf(context, promptInput.take(25).ifBlank { "Документ" }, responseText)
+                                exportToPdf(context, baseTitle, responseText)
                             },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
@@ -427,7 +655,8 @@ fun AiAcademicSecretaryDialog(
                                 onClick = {
                                     scope.launch {
                                         val title = promptInput.lines().firstOrNull()?.take(40)?.trim()
-                                            ?.ifBlank { "Ответ ИИ: ${selectedRole.title}" } ?: "Документ ИИ"
+                                            ?.ifBlank { attachments.firstOrNull()?.name?.substringBeforeLast(".") }
+                                            ?: "Ответ ИИ: ${selectedRole.title}"
                                         val newNote = Note(
                                             title = title,
                                             content = responseText,
@@ -471,9 +700,18 @@ fun AiAcademicSecretaryDialog(
 private fun exportToDocx(context: Context, title: String, text: String) {
     try {
         val file = DocxGenerator.generateDocxFromText(context, title, text)
-        shareFile(context, file, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Открыть в Word")
+        shareFile(context, file, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Открыть в Word (.docx)")
     } catch (e: Exception) {
         Toast.makeText(context, "Ошибка экспорта Word: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun exportToRtfDoc(context: Context, title: String, text: String) {
+    try {
+        val file = DocxGenerator.generateRtfFromText(context, title, text)
+        shareFile(context, file, "application/msword", "Открыть в Word (.doc)")
+    } catch (e: Exception) {
+        Toast.makeText(context, "Ошибка экспорта Word .doc: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
