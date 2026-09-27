@@ -19,7 +19,7 @@ import java.net.URL
 
 object GeminiVisionOcrService {
 
-    private const val MODEL_NAME = "gemini-2.5-flash"
+    private const val MODEL_NAME = "gemini-3.5-flash"
     private const val API_URL = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_NAME:generateContent"
 
     sealed class OcrResult {
