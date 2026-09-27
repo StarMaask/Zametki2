@@ -22,6 +22,9 @@ import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import android.text.Layout
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.widget.Toast
@@ -692,8 +695,9 @@ object ShareExportUtil {
                             canvas.drawLine(marginLeft, marginTop - 10f, pageWidth - marginRight, marginTop - 10f, ruleP)
                         }
 
-                        // 6. Running footer for all pages
-                        if (config.includePageNumbers) {
+                        // 6. Running footer for all pages (excluding title page for academic documents per ГОСТ)
+                        val isTitlePage = pageCount == 1 && (docStructure.isAcademicWork || docStructure.titlePageInfo != null)
+                        if (config.includePageNumbers && !isTitlePage) {
                             val footP = TextPaint().apply {
                                 color = theme.metaColor
                                 textSize = 8.5f
@@ -701,7 +705,7 @@ object ShareExportUtil {
                                 isAntiAlias = true
                             }
                             val footerY = pageHeight - 22f
-                            val leftText = "Лекции и Заметки"
+                            val leftText = if (docStructure.isAcademicWork) "Научно-исследовательская работа" else "Лекции и Заметки"
                             val pageStr = "Стр. $pageCount из $totalPages"
                             canvas.drawText(leftText, marginLeft, footerY, footP)
 
@@ -782,50 +786,143 @@ object ShareExportUtil {
                     }
                 }
 
-                if (docStructure.isOfficialDocument && docStructure.headerLines.isNotEmpty()) {
-                    // Render Right-Aligned Requisite Header Block (ГОСТ Р 7.0.97-2016)
-                    val headerLeft = marginLeft + contentWidth * 0.48f
-                    val headerWidth = (contentWidth * 0.52f).toInt()
-                    docStructure.headerLines.forEach { hLine ->
-                        val hLayout = StaticLayout.Builder.obtain(hLine, 0, hLine.length, bodyPaint, headerWidth)
-                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                            .setLineSpacing(1.5f, 1.15f)
-                            .build()
-
+                if (docStructure.titlePageInfo != null) {
+                    // Render Academic Title Page (ГОСТ 7.32-2017)
+                    val info = docStructure.titlePageInfo
+                    val centerPaint = TextPaint(bodyPaint).apply { textSize = 10f }
+                    for (line in info.organizationLines) {
+                        val lLayout = StaticLayout.Builder.obtain(line, 0, line.length, centerPaint, contentWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_CENTER).build()
                         if (!dryRun && activeCanvas != null) {
                             activeCanvas?.save()
-                            activeCanvas?.translate(headerLeft, currentY)
-                            hLayout.draw(activeCanvas!!)
+                            activeCanvas?.translate(marginLeft, currentY)
+                            lLayout.draw(activeCanvas!!)
                             activeCanvas?.restore()
                         }
-                        currentY += hLayout.height + 3f
+                        currentY += lLayout.height + 4f
                     }
-                    currentY += 14f
-                }
+                    currentY += 80f
 
-                // Render Title on Page 1 (Centered for official documents)
-                if (!dryRun && activeCanvas != null) {
-                    activeCanvas?.save()
-                    activeCanvas?.translate(marginLeft, currentY)
-                    titleLayout.draw(activeCanvas!!)
-                    activeCanvas?.restore()
-                }
-                currentY += titleLayout.height + (if (docStructure.isOfficialDocument) 16f else 8f)
-
-                // Render Metadata on Page 1
-                if (metaLayout != null) {
+                    val docTypePaint = TextPaint().apply {
+                        color = theme.inkColor
+                        textSize = 20f
+                        typeface = Typeface.create(noteTypeface, Typeface.BOLD)
+                        isAntiAlias = true
+                    }
+                    val docTypeLayout = StaticLayout.Builder.obtain(info.documentType, 0, info.documentType.length, docTypePaint, contentWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_CENTER).build()
                     if (!dryRun && activeCanvas != null) {
                         activeCanvas?.save()
                         activeCanvas?.translate(marginLeft, currentY)
-                        metaLayout.draw(activeCanvas!!)
+                        docTypeLayout.draw(activeCanvas!!)
                         activeCanvas?.restore()
                     }
-                    currentY += metaLayout.height + 12f
+                    currentY += docTypeLayout.height + 12f
 
-                    if (!dryRun && activeCanvas != null) {
-                        activeCanvas?.drawLine(marginLeft, currentY, pageWidth - marginRight, currentY, dividerPaint)
+                    if (!info.discipline.isNullOrBlank()) {
+                        val discLayout = StaticLayout.Builder.obtain(info.discipline, 0, info.discipline.length, bodyPaint, contentWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_CENTER).build()
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.save()
+                            activeCanvas?.translate(marginLeft, currentY)
+                            discLayout.draw(activeCanvas!!)
+                            activeCanvas?.restore()
+                        }
+                        currentY += discLayout.height + 8f
                     }
-                    currentY += 16f
+
+                    if (!info.topic.isNullOrBlank()) {
+                        val topicPaint = TextPaint().apply {
+                            color = theme.inkColor
+                            textSize = 14f
+                            typeface = Typeface.create(noteTypeface, Typeface.BOLD)
+                            isAntiAlias = true
+                        }
+                        val topicLayout = StaticLayout.Builder.obtain(info.topic, 0, info.topic.length, topicPaint, contentWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_CENTER).build()
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.save()
+                            activeCanvas?.translate(marginLeft, currentY)
+                            topicLayout.draw(activeCanvas!!)
+                            activeCanvas?.restore()
+                        }
+                        currentY += topicLayout.height + 16f
+                    }
+
+                    currentY += 60f
+
+                    val authorLeft = marginLeft + contentWidth * 0.45f
+                    val authorWidth = (contentWidth * 0.55f).toInt()
+                    for (aLine in info.authorLines + info.supervisorLines) {
+                        val aLayout = StaticLayout.Builder.obtain(aLine, 0, aLine.length, bodyPaint, authorWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL).build()
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.save()
+                            activeCanvas?.translate(authorLeft, currentY)
+                            aLayout.draw(activeCanvas!!)
+                            activeCanvas?.restore()
+                        }
+                        currentY += aLayout.height + 4f
+                    }
+
+                    val bottomY = pageHeight - marginBottom - 30f
+                    val cityYearText = info.cityAndYear ?: "Москва, 2026"
+                    val cityYearLayout = StaticLayout.Builder.obtain(cityYearText, 0, cityYearText.length, bodyPaint, contentWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_CENTER).build()
+                    if (!dryRun && activeCanvas != null) {
+                        activeCanvas?.save()
+                        activeCanvas?.translate(marginLeft, bottomY)
+                        cityYearLayout.draw(activeCanvas!!)
+                        activeCanvas?.restore()
+                    }
+
+                    startNewPage()
+                } else {
+                    if (docStructure.isOfficialDocument && docStructure.headerLines.isNotEmpty()) {
+                        // Render Right-Aligned Requisite Header Block (ГОСТ Р 7.0.97-2016)
+                        val headerLeft = marginLeft + contentWidth * 0.48f
+                        val headerWidth = (contentWidth * 0.52f).toInt()
+                        docStructure.headerLines.forEach { hLine ->
+                            val hLayout = StaticLayout.Builder.obtain(hLine, 0, hLine.length, bodyPaint, headerWidth)
+                                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                .setLineSpacing(1.5f, 1.15f)
+                                .build()
+
+                            if (!dryRun && activeCanvas != null) {
+                                activeCanvas?.save()
+                                activeCanvas?.translate(headerLeft, currentY)
+                                hLayout.draw(activeCanvas!!)
+                                activeCanvas?.restore()
+                            }
+                            currentY += hLayout.height + 3f
+                        }
+                        currentY += 14f
+                    }
+
+                    // Render Title on Page 1 (Centered for official documents)
+                    if (!dryRun && activeCanvas != null) {
+                        activeCanvas?.save()
+                        activeCanvas?.translate(marginLeft, currentY)
+                        titleLayout.draw(activeCanvas!!)
+                        activeCanvas?.restore()
+                    }
+                    currentY += titleLayout.height + (if (docStructure.isOfficialDocument) 16f else 8f)
+
+                    // Render Metadata on Page 1
+                    if (metaLayout != null) {
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.save()
+                            activeCanvas?.translate(marginLeft, currentY)
+                            metaLayout.draw(activeCanvas!!)
+                            activeCanvas?.restore()
+                        }
+                        currentY += metaLayout.height + 12f
+
+                        if (!dryRun && activeCanvas != null) {
+                            activeCanvas?.drawLine(marginLeft, currentY, pageWidth - marginRight, currentY, dividerPaint)
+                        }
+                        currentY += 16f
+                    }
                 }
 
                 // Render Checklist Items
@@ -854,78 +951,210 @@ object ShareExportUtil {
                     }
                 }
 
-                // Render Body Paragraphs with pagination line-wrapping
-                val effectiveParagraphs = if (docStructure.isOfficialDocument && docStructure.bodyElements.isNotEmpty()) {
-                    docStructure.bodyElements.filterIsInstance<DocxGenerator.BodyElement.Paragraph>().map { p ->
-                        if (p.isHeading) p.text else "        ${p.text}"
-                    }
-                } else {
-                    paragraphs
-                }
-
-                effectiveParagraphs.forEach { paragraph ->
-                    if (paragraph.isBlank()) {
-                        currentY += 14f
-                        if (currentY > usableBottomY) {
-                            startNewPage()
-                        }
-                    } else {
-                        val pLayout = StaticLayout.Builder.obtain(paragraph, 0, paragraph.length, bodyPaint, contentWidth)
-                            .setLineSpacing(2f, 1.15f)
-                            .build()
-
-                        if (currentY + pLayout.height <= usableBottomY) {
-                            // Entire paragraph fits on current page
-                            if (!dryRun && activeCanvas != null) {
-                                activeCanvas?.save()
-                                activeCanvas?.translate(marginLeft, currentY)
-                                pLayout.draw(activeCanvas!!)
-                                activeCanvas?.restore()
+                // Render Body Paragraphs & Elements with clean markdown formatting
+                if (docStructure.bodyElements.isNotEmpty()) {
+                    for (element in docStructure.bodyElements) {
+                        when (element) {
+                            is DocxGenerator.BodyElement.PageBreak -> {
+                                startNewPage()
                             }
-                            currentY += pLayout.height + 6f
-                        } else {
-                            // Split paragraph across page boundaries line-by-line
-                            var lineIdx = 0
-                            while (lineIdx < pLayout.lineCount) {
-                                val remainingSpace = usableBottomY - currentY
-                                if (remainingSpace < 22f) {
+                            is DocxGenerator.BodyElement.Paragraph -> {
+                                if (element.isPageBreakBefore) {
                                     startNewPage()
                                 }
-                                var fitCount = 0
-                                while (lineIdx + fitCount < pLayout.lineCount) {
-                                    val startY = pLayout.getLineTop(lineIdx)
-                                    val endY = pLayout.getLineBottom(lineIdx + fitCount)
-                                    if (endY - startY <= usableBottomY - currentY) {
-                                        fitCount++
-                                    } else {
-                                        break
+                                val spanBuilder = SpannableStringBuilder()
+                                val runs = if (element.runs.isNotEmpty()) element.runs else listOf(DocxGenerator.FormattedRun(element.text, isBold = element.isHeading))
+                                for (run in runs) {
+                                    val start = spanBuilder.length
+                                    spanBuilder.append(run.text)
+                                    val end = spanBuilder.length
+                                    if (run.isBold || element.isHeading) {
+                                        spanBuilder.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                                    }
+                                    if (run.isItalic) {
+                                        spanBuilder.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                                     }
                                 }
-                                if (fitCount == 0) fitCount = 1
 
-                                val startChar = pLayout.getLineStart(lineIdx)
-                                val endChar = pLayout.getLineEnd(lineIdx + fitCount - 1)
-                                val subText = paragraph.substring(startChar, endChar).trimEnd('\n')
-
-                                if (subText.isNotBlank()) {
-                                    val subLayout = StaticLayout.Builder.obtain(subText, 0, subText.length, bodyPaint, contentWidth)
+                                if (spanBuilder.isBlank()) {
+                                    currentY += 12f
+                                    if (currentY > usableBottomY) startNewPage()
+                                } else {
+                                    val pAlign = if (element.isCentered) Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL
+                                    val pLayout = StaticLayout.Builder.obtain(spanBuilder, 0, spanBuilder.length, bodyPaint, contentWidth)
+                                        .setAlignment(pAlign)
                                         .setLineSpacing(2f, 1.15f)
                                         .build()
 
-                                    if (!dryRun && activeCanvas != null) {
-                                        activeCanvas?.save()
-                                        activeCanvas?.translate(marginLeft, currentY)
-                                        subLayout.draw(activeCanvas!!)
-                                        activeCanvas?.restore()
+                                    if (currentY + pLayout.height <= usableBottomY) {
+                                        if (!dryRun && activeCanvas != null) {
+                                            activeCanvas?.save()
+                                            activeCanvas?.translate(marginLeft, currentY)
+                                            pLayout.draw(activeCanvas!!)
+                                            activeCanvas?.restore()
+                                        }
+                                        currentY += pLayout.height + 6f
+                                    } else {
+                                        // Line-by-line pagination
+                                        var lineIdx = 0
+                                        while (lineIdx < pLayout.lineCount) {
+                                            val remainingSpace = usableBottomY - currentY
+                                            if (remainingSpace < 22f) {
+                                                startNewPage()
+                                            }
+                                            var fitCount = 0
+                                            while (lineIdx + fitCount < pLayout.lineCount) {
+                                                val startY = pLayout.getLineTop(lineIdx)
+                                                val endY = pLayout.getLineBottom(lineIdx + fitCount)
+                                                if (endY - startY <= usableBottomY - currentY) {
+                                                    fitCount++
+                                                } else {
+                                                    break
+                                                }
+                                            }
+                                            if (fitCount == 0) fitCount = 1
+
+                                            val startChar = pLayout.getLineStart(lineIdx)
+                                            val endChar = pLayout.getLineEnd(lineIdx + fitCount - 1)
+                                            val subSpan = spanBuilder.subSequence(startChar, endChar)
+
+                                            if (subSpan.isNotBlank()) {
+                                                val subLayout = StaticLayout.Builder.obtain(subSpan, 0, subSpan.length, bodyPaint, contentWidth)
+                                                    .setAlignment(pAlign)
+                                                    .setLineSpacing(2f, 1.15f)
+                                                    .build()
+
+                                                if (!dryRun && activeCanvas != null) {
+                                                    activeCanvas?.save()
+                                                    activeCanvas?.translate(marginLeft, currentY)
+                                                    subLayout.draw(activeCanvas!!)
+                                                    activeCanvas?.restore()
+                                                }
+                                                currentY += subLayout.height + 4f
+                                            }
+                                            lineIdx += fitCount
+                                            if (lineIdx < pLayout.lineCount) {
+                                                startNewPage()
+                                            }
+                                        }
+                                        currentY += 4f
                                     }
-                                    currentY += subLayout.height + 4f
-                                }
-                                lineIdx += fitCount
-                                if (lineIdx < pLayout.lineCount) {
-                                    startNewPage()
                                 }
                             }
-                            currentY += 4f
+                            is DocxGenerator.BodyElement.Table -> {
+                                val rowHeight = 22f
+                                val tableHeight = (element.rows.size + 1) * rowHeight + 10f
+                                if (currentY + tableHeight > usableBottomY && currentY > marginTop + 40f) {
+                                    startNewPage()
+                                }
+                                val colCount = maxOf(1, element.headers.size)
+                                val colW = contentWidth.toFloat() / colCount
+                                val cellPaint = TextPaint(bodyPaint).apply { textSize = 9.5f }
+                                val borderPaint = Paint().apply {
+                                    color = Color.DKGRAY
+                                    style = Paint.Style.STROKE
+                                    strokeWidth = 0.8f
+                                }
+                                val bgPaint = Paint().apply {
+                                    color = Color.rgb(240, 240, 240)
+                                    style = Paint.Style.FILL
+                                }
+
+                                if (!dryRun && activeCanvas != null) {
+                                    activeCanvas?.drawRect(marginLeft, currentY, marginLeft + contentWidth, currentY + rowHeight, bgPaint)
+                                    activeCanvas?.drawRect(marginLeft, currentY, marginLeft + contentWidth, currentY + rowHeight, borderPaint)
+                                    element.headers.forEachIndexed { i, h ->
+                                        val hText = if (h.length > 25) h.take(24) + "…" else h
+                                        activeCanvas?.drawText(hText, marginLeft + i * colW + 4f, currentY + 15f, TextPaint(cellPaint).apply { typeface = Typeface.create(noteTypeface, Typeface.BOLD) })
+                                        if (i > 0) activeCanvas?.drawLine(marginLeft + i * colW, currentY, marginLeft + i * colW, currentY + rowHeight, borderPaint)
+                                    }
+                                }
+                                currentY += rowHeight
+
+                                for (row in element.rows) {
+                                    if (currentY + rowHeight > usableBottomY) {
+                                        startNewPage()
+                                    }
+                                    if (!dryRun && activeCanvas != null) {
+                                        activeCanvas?.drawRect(marginLeft, currentY, marginLeft + contentWidth, currentY + rowHeight, borderPaint)
+                                        row.forEachIndexed { i, c ->
+                                            if (i < colCount) {
+                                                val cText = if (c.length > 30) c.take(29) + "…" else c
+                                                activeCanvas?.drawText(cText, marginLeft + i * colW + 4f, currentY + 15f, cellPaint)
+                                                if (i > 0) activeCanvas?.drawLine(marginLeft + i * colW, currentY, marginLeft + i * colW, currentY + rowHeight, borderPaint)
+                                            }
+                                        }
+                                    }
+                                    currentY += rowHeight
+                                }
+                                currentY += 10f
+                            }
+                        }
+                    }
+                } else {
+                    paragraphs.forEach { paragraph ->
+                        val cleanPara = DocxGenerator.cleanStrayMarkdown(paragraph)
+                        if (cleanPara.isBlank()) {
+                            currentY += 14f
+                            if (currentY > usableBottomY) {
+                                startNewPage()
+                            }
+                        } else {
+                            val pLayout = StaticLayout.Builder.obtain(cleanPara, 0, cleanPara.length, bodyPaint, contentWidth)
+                                .setLineSpacing(2f, 1.15f)
+                                .build()
+
+                            if (currentY + pLayout.height <= usableBottomY) {
+                                if (!dryRun && activeCanvas != null) {
+                                    activeCanvas?.save()
+                                    activeCanvas?.translate(marginLeft, currentY)
+                                    pLayout.draw(activeCanvas!!)
+                                    activeCanvas?.restore()
+                                }
+                                currentY += pLayout.height + 6f
+                            } else {
+                                var lineIdx = 0
+                                while (lineIdx < pLayout.lineCount) {
+                                    val remainingSpace = usableBottomY - currentY
+                                    if (remainingSpace < 22f) {
+                                        startNewPage()
+                                    }
+                                    var fitCount = 0
+                                    while (lineIdx + fitCount < pLayout.lineCount) {
+                                        val startY = pLayout.getLineTop(lineIdx)
+                                        val endY = pLayout.getLineBottom(lineIdx + fitCount)
+                                        if (endY - startY <= usableBottomY - currentY) {
+                                            fitCount++
+                                        } else {
+                                            break
+                                        }
+                                    }
+                                    if (fitCount == 0) fitCount = 1
+
+                                    val startChar = pLayout.getLineStart(lineIdx)
+                                    val endChar = pLayout.getLineEnd(lineIdx + fitCount - 1)
+                                    val subText = cleanPara.substring(startChar, endChar).trimEnd('\n')
+
+                                    if (subText.isNotBlank()) {
+                                        val subLayout = StaticLayout.Builder.obtain(subText, 0, subText.length, bodyPaint, contentWidth)
+                                            .setLineSpacing(2f, 1.15f)
+                                            .build()
+
+                                        if (!dryRun && activeCanvas != null) {
+                                            activeCanvas?.save()
+                                            activeCanvas?.translate(marginLeft, currentY)
+                                            subLayout.draw(activeCanvas!!)
+                                            activeCanvas?.restore()
+                                        }
+                                        currentY += subLayout.height + 4f
+                                    }
+                                    lineIdx += fitCount
+                                    if (lineIdx < pLayout.lineCount) {
+                                        startNewPage()
+                                    }
+                                }
+                                currentY += 4f
+                            }
                         }
                     }
                 }

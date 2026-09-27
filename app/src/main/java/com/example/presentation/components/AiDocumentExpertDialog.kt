@@ -644,10 +644,11 @@ private fun GostFormattingView(
                                 }
                             }
                         }
+                        is DocxGenerator.BodyElement.PageBreak -> {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        }
                     }
                 }
-
-                // 4. Date & Signature
                 if (structure.footerLines.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(20.dp))
                     val dateText = structure.footerLines.firstOrNull { it.startsWith("Дата", ignoreCase = true) || it.startsWith("«___»") }

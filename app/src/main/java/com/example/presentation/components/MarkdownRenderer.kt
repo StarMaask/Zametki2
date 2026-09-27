@@ -275,14 +275,28 @@ fun MarkdownRenderer(
                         )
                     }
                 }
-                trimmed == "---" || trimmed == "***" -> {
-                    Box(
+                trimmed == "---" || trimmed == "***" || trimmed.contains("РАЗРЫВ СТРАНИЦЫ", ignoreCase = true) || trimmed == "[PAGE_BREAK]" -> {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                            .height(1.dp)
-                            .background(textColor.copy(alpha = 0.15f))
-                    )
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        ) {
+                            Text(
+                                text = "📄 Разрыв страницы (ГОСТ)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
                 }
                 trimmed.isBlank() -> {
                     Spacer(modifier = Modifier.height(6.dp))
