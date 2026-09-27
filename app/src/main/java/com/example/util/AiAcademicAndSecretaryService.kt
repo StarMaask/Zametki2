@@ -99,9 +99,35 @@ object AiAcademicAndSecretaryService {
         )
     }
 
+    data class DialogueMessage(
+        val role: String, // "user" or "model"
+        val text: String,
+        val attachments: List<AiAttachment> = emptyList()
+    )
+
     suspend fun askAssistant(
         context: Context,
         role: AssistantRole,
+        userPrompt: String,
+        contextText: String? = null,
+        attachments: List<AiAttachment> = emptyList(),
+        customApiKey: String? = null
+    ): Result<String> {
+        return askAssistantDialogue(
+            context = context,
+            role = role,
+            history = emptyList(),
+            userPrompt = userPrompt,
+            contextText = contextText,
+            attachments = attachments,
+            customApiKey = customApiKey
+        )
+    }
+
+    suspend fun askAssistantDialogue(
+        context: Context,
+        role: AssistantRole,
+        history: List<DialogueMessage>,
         userPrompt: String,
         contextText: String? = null,
         attachments: List<AiAttachment> = emptyList(),
@@ -118,7 +144,7 @@ object AiAcademicAndSecretaryService {
 
         val promptBuilder = StringBuilder()
 
-        if (!contextText.isNullOrBlank()) {
+        if (!contextText.isNullOrBlank() && history.isEmpty()) {
             promptBuilder.append("КОНТЕКСТ ТЕКУЩЕГО ДОКУМЕНТА / ЗАМЕТКИ:\n")
             promptBuilder.append("\"\"\"\n")
             promptBuilder.append(contextText)
@@ -140,14 +166,13 @@ object AiAcademicAndSecretaryService {
             promptBuilder.append("К запросу прикреплены файлы изображений/сканов/PDF (переданы во вложении). Тщательно изучи их содержимое.\n\n")
         }
 
-        promptBuilder.append("ЗАДАНИЕ ПОЛЬЗОВАТЕЛЯ:\n")
         promptBuilder.append(userPrompt.trim())
 
-        val fullPrompt = promptBuilder.toString()
+        val latestUserText = promptBuilder.toString()
 
         var lastError = "Не удалось получить ответ от ИИ"
         for (model in REASONING_MODELS) {
-            val result = executeRequest(model, apiKey, role.systemPrompt, fullPrompt, attachments)
+            val result = executeDialogueRequest(model, apiKey, role.systemPrompt, history, latestUserText, attachments)
             if (result.isSuccess) {
                 return@withContext result
             }
@@ -157,12 +182,13 @@ object AiAcademicAndSecretaryService {
         Result.failure(Exception(lastError))
     }
 
-    private fun executeRequest(
+    private fun executeDialogueRequest(
         model: String,
         apiKey: String,
         systemInstruction: String,
-        userContent: String,
-        attachments: List<AiAttachment>
+        history: List<DialogueMessage>,
+        latestUserText: String,
+        latestAttachments: List<AiAttachment>
     ): Result<String> {
         var connection: HttpURLConnection? = null
         return try {
@@ -185,17 +211,18 @@ object AiAcademicAndSecretaryService {
                         })
                     })
                 })
-                put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
+
+                val contentsArray = JSONArray()
+
+                // Add past dialogue turns
+                for (msg in history) {
+                    val contentObj = JSONObject().apply {
+                        put("role", if (msg.role == "model") "model" else "user")
                         val parts = JSONArray()
-
-                        // Text part
                         parts.put(JSONObject().apply {
-                            put("text", userContent)
+                            put("text", msg.text)
                         })
-
-                        // Multimodal parts (images and PDFs)
-                        for (att in attachments) {
+                        for (att in msg.attachments) {
                             if (!att.base64Data.isNullOrBlank()) {
                                 parts.put(JSONObject().apply {
                                     put("inlineData", JSONObject().apply {
@@ -205,10 +232,34 @@ object AiAcademicAndSecretaryService {
                                 })
                             }
                         }
-
                         put("parts", parts)
+                    }
+                    contentsArray.put(contentObj)
+                }
+
+                // Add the latest user turn
+                val latestContentObj = JSONObject().apply {
+                    put("role", "user")
+                    val parts = JSONArray()
+                    parts.put(JSONObject().apply {
+                        put("text", latestUserText)
                     })
-                })
+                    for (att in latestAttachments) {
+                        if (!att.base64Data.isNullOrBlank()) {
+                            parts.put(JSONObject().apply {
+                                put("inlineData", JSONObject().apply {
+                                    put("mimeType", att.mimeType)
+                                    put("data", att.base64Data)
+                                })
+                            })
+                        }
+                    }
+                    put("parts", parts)
+                }
+                contentsArray.put(latestContentObj)
+
+                put("contents", contentsArray)
+
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.35)
                     put("topP", 0.95)

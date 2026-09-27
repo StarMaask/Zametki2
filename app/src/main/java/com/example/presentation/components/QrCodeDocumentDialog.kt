@@ -289,7 +289,11 @@ private fun shareQrBitmap(context: Context, bitmap: Bitmap, title: String) {
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val uri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        } catch (_: Exception) {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
