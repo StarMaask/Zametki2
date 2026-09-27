@@ -95,7 +95,9 @@ data class PdfExportConfig(
     val includeMetadata: Boolean = true,
     val includeImages: Boolean = true,
     val includePageNumbers: Boolean = true,
-    val includeChecklist: Boolean = true
+    val includeChecklist: Boolean = true,
+    val includeSignature: Boolean = true,
+    val includeStamp: Boolean = false
 )
 
 object ShareExportUtil {
@@ -875,7 +877,17 @@ object ShareExportUtil {
                     val sigLayout = StaticLayout.Builder.obtain(sigText, 0, sigText.length, bodyPaint, (contentWidth * 0.48f).toInt())
                         .setAlignment(Layout.Alignment.ALIGN_OPPOSITE).build()
 
-                    val footerBlockH = maxOf(dateLayout.height, sigLayout.height) + 24f
+                    val sigBitmap: Bitmap? = if (config.includeSignature && SignatureManager.hasSignature(context)) {
+                        val profile = com.example.data.preferences.UserPreferencesManager(context).getUserProfileSync()
+                        if (config.includeStamp) {
+                            SignatureManager.createFacsimileStamp(context, profile, true)
+                        } else {
+                            SignatureManager.getSignatureBitmap(context)
+                        }
+                    } else null
+
+                    val sigImgH = if (sigBitmap != null) 36f else 0f
+                    val footerBlockH = maxOf(dateLayout.height.toFloat(), sigLayout.height.toFloat() + sigImgH) + 24f
                     if (currentY + footerBlockH > usableBottomY) {
                         startNewPage()
                     }
@@ -887,8 +899,22 @@ object ShareExportUtil {
                         dateLayout.draw(activeCanvas!!)
                         activeCanvas?.restore()
 
+                        // Draw digital handwritten signature / facsimile stamp
+                        if (sigBitmap != null) {
+                            val maxW = if (config.includeStamp) 140f else 110f
+                            val maxH = if (config.includeStamp) 55f else 38f
+                            val scale = minOf(maxW / sigBitmap.width, maxH / sigBitmap.height)
+                            val scaledW = (sigBitmap.width * scale).toInt().coerceAtLeast(1)
+                            val scaledH = (sigBitmap.height * scale).toInt().coerceAtLeast(1)
+                            val scaledBmp = Bitmap.createScaledBitmap(sigBitmap, scaledW, scaledH, true)
+
+                            val sigDrawX = (pageWidth - marginRight - scaledW - 12f).coerceAtLeast(marginLeft)
+                            val sigDrawY = currentY - (if (config.includeStamp) 8f else 18f)
+                            activeCanvas?.drawBitmap(scaledBmp, sigDrawX, sigDrawY, Paint(Paint.FILTER_BITMAP_FLAG))
+                        }
+
                         activeCanvas?.save()
-                        activeCanvas?.translate(marginLeft + contentWidth * 0.52f, currentY)
+                        activeCanvas?.translate(marginLeft + contentWidth * 0.52f, currentY + (if (sigBitmap != null && config.includeStamp) 42f else 0f))
                         sigLayout.draw(activeCanvas!!)
                         activeCanvas?.restore()
                     }
@@ -1378,10 +1404,11 @@ object ShareExportUtil {
     /**
      * Generates a modern Microsoft Word (.docx) file in cache using standard OpenXML.
      * Complies strictly with Russian office paperwork standard ГОСТ Р 7.0.97-2016.
+     * Optionally embeds digital handwritten signature into the signature block.
      */
-    fun generateDocxFile(context: Context, note: Note): File? {
+    fun generateDocxFile(context: Context, note: Note, includeSignature: Boolean = true): File? {
         return try {
-            DocxGenerator.generateDocxFile(context, note)
+            DocxGenerator.generateDocxFile(context, note, includeSignature)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -1404,9 +1431,9 @@ object ShareExportUtil {
     /**
      * Shares Word .docx document via Intent chooser.
      */
-    fun shareAsDocx(context: Context, note: Note) {
+    fun shareAsDocx(context: Context, note: Note, includeSignature: Boolean = true) {
         try {
-            val docxFile = generateDocxFile(context, note) ?: run {
+            val docxFile = generateDocxFile(context, note, includeSignature) ?: run {
                 Toast.makeText(context, "Не удалось создать Word (.docx) документ", Toast.LENGTH_SHORT).show()
                 return
             }
@@ -1452,9 +1479,9 @@ object ShareExportUtil {
     /**
      * Saves Word .docx document to Downloads.
      */
-    fun saveDocxToDownloads(context: Context, note: Note): File? {
+    fun saveDocxToDownloads(context: Context, note: Note, includeSignature: Boolean = true): File? {
         return try {
-            val docxFile = generateDocxFile(context, note) ?: return null
+            val docxFile = generateDocxFile(context, note, includeSignature) ?: return null
             val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
             val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             val targetFile = File(downloadsDir, "${cleanTitle}_${System.currentTimeMillis()}.docx")

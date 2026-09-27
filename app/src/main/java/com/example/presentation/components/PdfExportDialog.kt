@@ -46,13 +46,35 @@ fun PdfExportDialog(
     var includePageNumbers by remember { mutableStateOf(true) }
     var includeChecklist by remember { mutableStateOf(note.checkListJson.isNotBlank()) }
 
-    val config = remember(selectedTheme, includeMetadata, includeImages, includePageNumbers, includeChecklist) {
+    var hasSignature by remember { mutableStateOf(com.example.util.SignatureManager.hasSignature(context)) }
+    var includeSignature by remember { mutableStateOf(hasSignature) }
+    var includeStamp by remember { mutableStateOf(false) }
+    var showSignaturePad by remember { mutableStateOf(false) }
+
+    val config = remember(selectedTheme, includeMetadata, includeImages, includePageNumbers, includeChecklist, includeSignature, includeStamp) {
         PdfExportConfig(
             theme = selectedTheme,
             includeMetadata = includeMetadata,
             includeImages = includeImages,
             includePageNumbers = includePageNumbers,
-            includeChecklist = includeChecklist
+            includeChecklist = includeChecklist,
+            includeSignature = includeSignature,
+            includeStamp = includeStamp
+        )
+    }
+
+    if (showSignaturePad) {
+        SignaturePadDialog(
+            preferencesManager = com.example.data.preferences.UserPreferencesManager(context),
+            onDismissRequest = {
+                showSignaturePad = false
+                hasSignature = com.example.util.SignatureManager.hasSignature(context)
+                if (hasSignature) includeSignature = true
+            },
+            onSignatureSaved = {
+                hasSignature = true
+                includeSignature = true
+            }
         )
     }
 
@@ -339,6 +361,69 @@ fun PdfExportDialog(
                                 Text("Отрисовка чекбоксов с отметками выполнения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = includeChecklist, onCheckedChange = { includeChecklist = it })
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Signature & Facsimile Section
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("✍️ Рукописная подпись", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                if (hasSignature) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Сохранена",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = if (hasSignature) "Вставка вашей личной подписи в блок подписи" else "Подпись не настроена — нажмите чтобы нарисовать",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (hasSignature) {
+                            Switch(checked = includeSignature, onCheckedChange = { includeSignature = it })
+                        } else {
+                            FilledTonalButton(
+                                onClick = { showSignaturePad = true },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("Нарисовать", fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    if (hasSignature && includeSignature) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Штамп простой ЭП (Факсимиле)", fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+                                Text("Синяя рамка с реквизитами заявителя и датой", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Checkbox(checked = includeStamp, onCheckedChange = { includeStamp = it })
                         }
                     }
                 }

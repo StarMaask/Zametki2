@@ -27,12 +27,17 @@ import com.example.BuildConfig
 import com.example.data.preferences.FontSizeScale
 import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.Note
+import com.example.domain.model.UserProfileRequisites
 import com.example.domain.repository.NoteRepository
 import com.example.presentation.components.AudioPerceptionSettingsDialog
+import com.example.presentation.components.SignaturePadDialog
 import com.example.presentation.components.TooltipIconButton
+import com.example.presentation.components.UserProfileRequisitesDialog
 import com.example.ui.theme.AppThemePreset
 import com.example.util.BiometricAuthUtil
 import com.example.util.GeminiOcrService
+import com.example.util.SignatureManager
+import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

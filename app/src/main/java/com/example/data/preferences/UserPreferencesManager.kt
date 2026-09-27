@@ -6,10 +6,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.domain.model.UserProfileRequisites
 import com.example.ui.theme.AppThemePreset
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.IOException
 
 enum class FontSizeScale(val title: String, val scale: Float) {
@@ -52,6 +55,10 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_ENABLE_BLUETOOTH_SCO = booleanPreferencesKey("lecture_bluetooth_sco")
     private val KEY_GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
     private val KEY_OCR_PREFER_AI = booleanPreferencesKey("ocr_prefer_ai")
+    private val KEY_USER_PROFILE = stringPreferencesKey("user_profile_requisites")
+    private val KEY_SIGNATURE_DOCX_ENABLED = booleanPreferencesKey("sig_docx_enabled")
+    private val KEY_SIGNATURE_PDF_ENABLED = booleanPreferencesKey("sig_pdf_enabled")
+    private val KEY_SIGNATURE_INCLUDE_STAMP = booleanPreferencesKey("sig_include_stamp")
 
     private val syncPrefs = context.getSharedPreferences("user_settings_sync", Context.MODE_PRIVATE)
 
@@ -451,5 +458,83 @@ class UserPreferencesManager(private val context: Context) {
     suspend fun setOcrPreferAi(prefer: Boolean) {
         syncPrefs.edit().putBoolean("ocr_prefer_ai", prefer).apply()
         context.dataStore.edit { it[KEY_OCR_PREFER_AI] = prefer }
+    }
+
+    private val profileJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        encodeDefaults = true
+    }
+
+    val userProfileFlow: Flow<UserProfileRequisites> = context.dataStore.data.map { prefs ->
+        val jsonStr = prefs[KEY_USER_PROFILE] ?: syncPrefs.getString("user_profile_requisites", null)
+        if (jsonStr.isNullOrBlank()) {
+            UserProfileRequisites()
+        } else {
+            try {
+                profileJson.decodeFromString<UserProfileRequisites>(jsonStr)
+            } catch (_: Exception) {
+                UserProfileRequisites()
+            }
+        }
+    }
+
+    fun getUserProfileSync(): UserProfileRequisites {
+        val jsonStr = syncPrefs.getString("user_profile_requisites", null) ?: return UserProfileRequisites()
+        return try {
+            profileJson.decodeFromString<UserProfileRequisites>(jsonStr)
+        } catch (_: Exception) {
+            UserProfileRequisites()
+        }
+    }
+
+    suspend fun saveUserProfile(profile: UserProfileRequisites) {
+        val jsonStr = profileJson.encodeToString(profile)
+        syncPrefs.edit().putString("user_profile_requisites", jsonStr).apply()
+        context.dataStore.edit { it[KEY_USER_PROFILE] = jsonStr }
+    }
+
+    fun saveUserProfileSync(profile: UserProfileRequisites) {
+        val jsonStr = profileJson.encodeToString(profile)
+        syncPrefs.edit().putString("user_profile_requisites", jsonStr).apply()
+    }
+
+    val isSignatureEnabledInDocxFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SIGNATURE_DOCX_ENABLED] ?: syncPrefs.getBoolean("sig_docx_enabled", true)
+    }
+
+    fun isSignatureEnabledInDocxSync(): Boolean {
+        return syncPrefs.getBoolean("sig_docx_enabled", true)
+    }
+
+    suspend fun setSignatureEnabledInDocx(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("sig_docx_enabled", enabled).apply()
+        context.dataStore.edit { it[KEY_SIGNATURE_DOCX_ENABLED] = enabled }
+    }
+
+    val isSignatureEnabledInPdfFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SIGNATURE_PDF_ENABLED] ?: syncPrefs.getBoolean("sig_pdf_enabled", true)
+    }
+
+    fun isSignatureEnabledInPdfSync(): Boolean {
+        return syncPrefs.getBoolean("sig_pdf_enabled", true)
+    }
+
+    suspend fun setSignatureEnabledInPdf(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("sig_pdf_enabled", enabled).apply()
+        context.dataStore.edit { it[KEY_SIGNATURE_PDF_ENABLED] = enabled }
+    }
+
+    val isSignatureIncludeStampFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SIGNATURE_INCLUDE_STAMP] ?: syncPrefs.getBoolean("sig_include_stamp", false)
+    }
+
+    fun isSignatureIncludeStampSync(): Boolean {
+        return syncPrefs.getBoolean("sig_include_stamp", false)
+    }
+
+    suspend fun setSignatureIncludeStamp(include: Boolean) {
+        syncPrefs.edit().putBoolean("sig_include_stamp", include).apply()
+        context.dataStore.edit { it[KEY_SIGNATURE_INCLUDE_STAMP] = include }
     }
 }

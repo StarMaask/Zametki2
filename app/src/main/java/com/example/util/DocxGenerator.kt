@@ -250,19 +250,28 @@ object DocxGenerator {
 
     /**
      * Generates a genuine, standard Office Open XML (.docx) package as a ZIP file.
+     * Optionally embeds user's digital handwritten signature directly into the signature block.
      */
-    fun generateDocxFile(context: Context, note: Note): File {
+    fun generateDocxFile(context: Context, note: Note, includeSignature: Boolean = true): File {
         val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-Я0-9_]"), "_").take(30).ifBlank { "document" }
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
         val docxFile = File(exportDir, "${cleanTitle}.docx")
 
         val structure = parseStructure(note)
-        val documentXml = buildDocumentXml(note, structure)
+        val hasSignature = includeSignature && SignatureManager.hasSignature(context)
+        val documentXml = buildDocumentXml(note, structure, hasSignature)
 
         ZipOutputStream(FileOutputStream(docxFile)).use { zos ->
             // 1. [Content_Types].xml
+            val contentTypesXml = if (hasSignature) {
+                CONTENT_TYPES_XML.replace(
+                    "</Types>",
+                    "  <Default Extension=\"png\" ContentType=\"image/png\"/>\n</Types>"
+                )
+            } else CONTENT_TYPES_XML
+
             zos.putNextEntry(ZipEntry("[Content_Types].xml"))
-            zos.write(CONTENT_TYPES_XML.toByteArray(Charsets.UTF_8))
+            zos.write(contentTypesXml.toByteArray(Charsets.UTF_8))
             zos.closeEntry()
 
             // 2. _rels/.rels
@@ -271,8 +280,15 @@ object DocxGenerator {
             zos.closeEntry()
 
             // 3. word/_rels/document.xml.rels
+            val wordRelsXml = if (hasSignature) {
+                WORD_RELS_XML.replace(
+                    "</Relationships>",
+                    "  <Relationship Id=\"rIdSig\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/signature.png\"/>\n</Relationships>"
+                )
+            } else WORD_RELS_XML
+
             zos.putNextEntry(ZipEntry("word/_rels/document.xml.rels"))
-            zos.write(WORD_RELS_XML.toByteArray(Charsets.UTF_8))
+            zos.write(wordRelsXml.toByteArray(Charsets.UTF_8))
             zos.closeEntry()
 
             // 4. word/settings.xml
@@ -285,7 +301,17 @@ object DocxGenerator {
             zos.write(STYLES_XML.toByteArray(Charsets.UTF_8))
             zos.closeEntry()
 
-            // 6. word/document.xml
+            // 6. word/media/signature.png (if signature embedded)
+            if (hasSignature) {
+                val sigFile = SignatureManager.getSignatureFile(context)
+                if (sigFile.exists()) {
+                    zos.putNextEntry(ZipEntry("word/media/signature.png"))
+                    zos.write(sigFile.readBytes())
+                    zos.closeEntry()
+                }
+            }
+
+            // 7. word/document.xml
             zos.putNextEntry(ZipEntry("word/document.xml"))
             zos.write(documentXml.toByteArray(Charsets.UTF_8))
             zos.closeEntry()
@@ -309,10 +335,10 @@ object DocxGenerator {
         return docFile
     }
 
-    private fun buildDocumentXml(note: Note, structure: ParsedDocumentStructure): String {
+    private fun buildDocumentXml(note: Note, structure: ParsedDocumentStructure, hasSignature: Boolean = false): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n")
-        sb.append("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">\n")
+        sb.append("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\n")
         sb.append("<w:body>\n")
 
         // 1. RIGHT-ALIGNED HEADER (ГОСТ Р 7.0.97-2016)
@@ -516,8 +542,42 @@ object DocxGenerator {
         // Right cell: Signature
         sb.append("    <w:tc>\n")
         sb.append("      <w:tcPr><w:tcW w:w=\"4678\" w:type=\"dxa\"/></w:tcPr>\n")
+
+        if (hasSignature) {
+            // Embed high-res transparent digital signature image above/on signature line
+            sb.append("      <w:p>\n")
+            sb.append("        <w:pPr><w:jc w:val=\"right\"/><w:spacing w:before=\"200\" w:after=\"0\"/></w:pPr>\n")
+            sb.append("        <w:r>\n")
+            sb.append("          <w:drawing>\n")
+            sb.append("            <wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">\n")
+            sb.append("              <wp:extent cx=\"1463040\" cy=\"548640\"/>\n") // 160pt x 60pt in EMUs
+            sb.append("              <wp:docPr id=\"1001\" name=\"DigitalSignature\"/>\n")
+            sb.append("              <a:graphic>\n")
+            sb.append("                <a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\n")
+            sb.append("                  <pic:pic>\n")
+            sb.append("                    <pic:nvPicPr>\n")
+            sb.append("                      <pic:cNvPr id=\"0\" name=\"signature.png\"/>\n")
+            sb.append("                      <pic:cNvPicPr/>\n")
+            sb.append("                    </pic:nvPicPr>\n")
+            sb.append("                    <pic:blipFill>\n")
+            sb.append("                      <a:blip r:embed=\"rIdSig\"/>\n")
+            sb.append("                      <a:stretch><a:fillRect/></a:stretch>\n")
+            sb.append("                    </pic:blipFill>\n")
+            sb.append("                    <pic:spPr>\n")
+            sb.append("                      <a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"1463040\" cy=\"548640\"/></a:xfrm>\n")
+            sb.append("                      <a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>\n")
+            sb.append("                    </pic:spPr>\n")
+            sb.append("                  </pic:pic>\n")
+            sb.append("                </a:graphicData>\n")
+            sb.append("              </a:graphic>\n")
+            sb.append("            </wp:inline>\n")
+            sb.append("          </w:drawing>\n")
+            sb.append("        </w:r>\n")
+            sb.append("      </w:p>\n")
+        }
+
         sb.append("      <w:p>\n")
-        sb.append("        <w:pPr><w:spacing w:before=\"480\" w:line=\"360\" w:lineRule=\"auto\"/><w:jc w:val=\"right\"/></w:pPr>\n")
+        sb.append("        <w:pPr><w:spacing w:before=\"").append(if (hasSignature) "60" else "480").append("\" w:line=\"360\" w:lineRule=\"auto\"/><w:jc w:val=\"right\"/></w:pPr>\n")
         sb.append("        <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(sigText)).append("</w:t></w:r>\n")
         sb.append("      </w:p>\n")
         sb.append("    </w:tc>\n")

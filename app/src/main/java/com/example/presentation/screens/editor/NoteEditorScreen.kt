@@ -87,7 +87,9 @@ import com.example.presentation.components.DocumentInsertDialog
 import com.example.presentation.components.AiDocumentExpertDialog
 import com.example.presentation.components.GeminiApiKeyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
+import com.example.presentation.components.SignaturePadDialog
 import com.example.presentation.components.TooltipIconButton
+import com.example.presentation.components.UserProfileRequisitesDialog
 import com.example.presentation.components.VoiceSettingsDialog
 import com.example.presentation.components.AudioPerceptionSettingsDialog
 import com.example.util.SpeechPostProcessor
@@ -157,6 +159,10 @@ fun NoteEditorScreen(
     var digitizerInitialImageUri by remember { mutableStateOf<String?>(null) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showPinUnlockDialog by remember { mutableStateOf(false) }
+    var showSignaturePadDialog by remember { mutableStateOf(false) }
+    var showUserProfileDialog by remember { mutableStateOf(false) }
+    var showRequisitesMenu by remember { mutableStateOf(false) }
+    var showSignatureMenu by remember { mutableStateOf(false) }
 
     val preferencesManager = remember { UserPreferencesManager(context) }
     val speechManager = remember { NoteSpeechManager(context) }
@@ -215,6 +221,68 @@ fun NoteEditorScreen(
         val newCursor = insertPos + separator.length + spoken.length + 1
         contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
         viewModel.onContentChange(newText)
+    }
+
+    fun applyUserProfileRequisites() {
+        val profile = preferencesManager.getUserProfileSync()
+        if (!profile.isConfigured) {
+            showUserProfileDialog = true
+            Toast.makeText(context, "Заполните реквизиты автора один раз для автозаполнения", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val text = contentTextFieldValue.text
+        val lines = text.lines().toMutableList()
+        val applicantHeader = profile.buildHeaderFromLines()
+        val signatureLine = profile.buildSignatureLine()
+
+        val fromIndex = lines.indexOfFirst {
+            it.trim().startsWith("От кого:", ignoreCase = true) || it.trim().startsWith("От:", ignoreCase = true)
+        }
+
+        val newLines = if (fromIndex != -1) {
+            var endIdx = fromIndex + 1
+            while (endIdx < lines.size && lines[endIdx].isNotBlank() &&
+                !lines[endIdx].trim().equals("ЗАЯВЛЕНИЕ", ignoreCase = true) &&
+                !lines[endIdx].trim().equals("СЛУЖЕБНАЯ ЗАПИСКА", ignoreCase = true) &&
+                !lines[endIdx].trim().equals("ОБЪЯСНИТЕЛЬНАЯ ЗАПИСКА", ignoreCase = true) &&
+                !lines[endIdx].trim().startsWith("#")) {
+                endIdx++
+            }
+            lines.subList(fromIndex, endIdx).clear()
+            lines.addAll(fromIndex, applicantHeader)
+            lines
+        } else {
+            val toIndex = lines.indexOfFirst { it.trim().startsWith("Кому:", ignoreCase = true) }
+            if (toIndex != -1) {
+                var insertAt = toIndex + 1
+                while (insertAt < lines.size && lines[insertAt].isNotBlank() &&
+                    !lines[insertAt].trim().equals("ЗАЯВЛЕНИЕ", ignoreCase = true) &&
+                    !lines[insertAt].trim().startsWith("#")) {
+                    insertAt++
+                }
+                lines.addAll(insertAt, applicantHeader)
+                lines
+            } else {
+                (applicantHeader + "" + lines).toMutableList()
+            }
+        }
+
+        val sigIndex = newLines.indexOfLast {
+            it.contains("Подпись:", ignoreCase = true) || it.contains("____________ /")
+        }
+        val finalLines = if (sigIndex != -1) {
+            newLines.toMutableList().apply {
+                this[sigIndex] = signatureLine
+            }
+        } else {
+            newLines + "" + "Дата: «___» __________ 202_ г." + signatureLine
+        }
+
+        val newText = finalLines.joinToString("\n")
+        contentTextFieldValue = TextFieldValue(newText, TextRange(newText.length))
+        viewModel.onContentChange(newText)
+        Toast.makeText(context, "Реквизиты заявителя внесены в документ!", Toast.LENGTH_SHORT).show()
     }
 
     val ocrImagePickerLauncher = rememberLauncherForActivityResult(
@@ -835,6 +903,48 @@ fun NoteEditorScreen(
                                         showTopMenu = false
                                         activeTopSubMenu = null
                                         showTemplateDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Подставить реквизиты автора (ГОСТ)", fontWeight = FontWeight.SemiBold)
+                                            Text("Быстрое заполнение «От кого:» и подписи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Bolt, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        applyUserProfileRequisites()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Мои реквизиты автора")
+                                            Text("ФИО, должность, организация, контакты", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Badge, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showUserProfileDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Личная подпись / Факсимиле")
+                                            Text("Создание и настройка рукописной подписи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Draw, null) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showSignaturePadDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1880,6 +1990,63 @@ fun NoteEditorScreen(
                             Icon(Icons.Filled.Description, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Шаблоны", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+
+                        // 4.1 РЕКВИЗИТЫ ЗАЯВИТЕЛЯ (ГОСТ Requisites & 1-Click AutoFill)
+                        Box {
+                            FilledTonalButton(
+                                onClick = { showRequisitesMenu = true },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Filled.Badge, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Реквизиты", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            }
+                            DropdownMenu(
+                                expanded = showRequisitesMenu,
+                                onDismissRequest = { showRequisitesMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("⚡ Подставить в документ", fontWeight = FontWeight.Bold)
+                                            Text("Вставить блок «От кого:» и подпись", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Bolt, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showRequisitesMenu = false
+                                        applyUserProfileRequisites()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("👤 Мои реквизиты автора")
+                                            Text("ФИО, должность, организация, контакты", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Person, null) },
+                                    onClick = {
+                                        showRequisitesMenu = false
+                                        showUserProfileDialog = true
+                                    }
+                                )
+                            }
+                        }
+
+                        // 4.2 РУКОПИСНАЯ ПОДПИСЬ (Digital Handwritten Signature)
+                        FilledTonalButton(
+                            onClick = { showSignaturePadDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(Icons.Filled.Draw, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Подпись", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
 
                         // 5. ЭКСПОРТ (Export Menu: PDF, Word, Excel, Share)
@@ -3229,6 +3396,26 @@ fun NoteEditorScreen(
         PdfExportDialog(
             note = state.toDomainNote(),
             onDismissRequest = { showPdfExportDialog = false }
+        )
+    }
+
+    if (showSignaturePadDialog) {
+        SignaturePadDialog(
+            preferencesManager = preferencesManager,
+            onDismissRequest = { showSignaturePadDialog = false },
+            onSignatureSaved = {
+                Toast.makeText(context, "Подпись сохранена и готова к вставке в документы!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showUserProfileDialog) {
+        UserProfileRequisitesDialog(
+            preferencesManager = preferencesManager,
+            onDismissRequest = { showUserProfileDialog = false },
+            onSaved = { profile ->
+                Toast.makeText(context, "Реквизиты сохранены", Toast.LENGTH_SHORT).show()
+            }
         )
     }
 
