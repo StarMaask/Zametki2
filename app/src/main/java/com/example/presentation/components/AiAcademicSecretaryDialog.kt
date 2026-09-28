@@ -278,12 +278,12 @@ fun AiAcademicSecretaryDialog(
     }
 
     val professorChips = listOf(
-        "🎓 Реферат по ГОСТ (титульный лист, содержание, сокращения, разделы, список источников)",
-        "📘 Курсовая работа (полная структура с методикой, расчетами и таблицами)",
+        "🎓 Фундаментальный реферат по ГОСТ (15–20 стр., детальная теория, формулы, таблицы, источники ВАК)",
+        "📘 Полная курсовая работа (с методикой, расчетами, кейсами и таблицами)",
         "📑 Научный отчет по ГОСТ 7.32 с аннотацией, выводами и списком ВАК",
-        "📐 Решить математическую задачу по шагам с формулами и выкладками",
-        "🔬 Физика / Химия: подробный вывод формулы, законы и размерности",
-        "📝 Подробный академический конспект со структурой и терминами"
+        "📐 Подробное решение задачи по шагам с формулами, выкладками и размерностями",
+        "🔬 Физика / Химия: исчерпывающий вывод законов, моделей и формул",
+        "📝 Развернутый академический конспект со структурой и терминами"
     )
 
     val secretaryChips = listOf(
@@ -297,12 +297,13 @@ fun AiAcademicSecretaryDialog(
 
     val refinementChips = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) {
         listOf(
-            "⏩ Продолжить с места обрыва / Дописать следующие разделы",
-            "Добавь титульный лист, содержание и перечень сокращений по ГОСТ",
-            "Оформи список источников строго по ГОСТ 7.0.5-2008",
-            "Распиши подробнее математические выкладки и формулы",
-            "Добавь сравнительную расчетную таблицу данных",
-            "Разверни заключение и выводы по всем задачам"
+            "📚 Сделать работу в 2-3 раза объемнее и детальнее (углубить все разделы по ГОСТ)",
+            "⏩ Продолжить составление / Дописать следующие разделы работы",
+            "📖 Расширить теоретический раздел (добавить научные школы, концепции ученых)",
+            "🔬 Расписать формулы подробнее (с пошаговым выводом и размерностями СИ)",
+            "📊 Добавить большую сравнительную аналитическую таблицу данных",
+            "⚙️ Углубить практическую часть (добавить численные расчеты и практические кейсы)",
+            "🎓 Расширить список источников до 25 научных публикаций ВАК по ГОСТ"
         )
     } else {
         listOf(
@@ -1099,6 +1100,13 @@ fun AiAcademicSecretaryDialog(
                                         onContinueGeneration = {
                                             sendMessage("Продолжи составление документа строго с того места, где он прервался. Напиши оставшиеся разделы, заключение, список использованных источников и приложения по ГОСТ.")
                                         },
+                                        onDeepenGeneration = {
+                                            sendMessage(
+                                                "Сделай эту работу значительно более глубокой, солидной, развернутой и профессиональной (полноценный фундаментальный труд по всем стандартам ГОСТ). " +
+                                                "Подробно раскрой каждый подраздел (по 5-8 плотных академических абзацев), включи детальный обзор научных школ, теории и авторитетных ученых, " +
+                                                "формулы с пошаговым выводом и единицами СИ, большую сравнительную аналитическую таблицу данных, практические примеры, численные расчеты и развернутые выводы по всем задачам."
+                                            )
+                                        },
                                         unifiedDocumentText = unifiedDoc,
                                         totalModelMessagesCount = modelCount
                                     )
@@ -1453,6 +1461,7 @@ private fun ModelMessageCard(
     onInsertTextIntoNote: ((String) -> Unit)?,
     onDismissRequest: () -> Unit,
     onContinueGeneration: (() -> Unit)? = null,
+    onDeepenGeneration: (() -> Unit)? = null,
     unifiedDocumentText: String? = null,
     totalModelMessagesCount: Int = 1
 ) {
@@ -1557,6 +1566,29 @@ private fun ModelMessageCard(
                     markdownText = message.text,
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+            // Quick Deepen / Expand Button for comprehensive academic rigor
+            if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR && onDeepenGeneration != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                FilledTonalButton(
+                    onClick = onDeepenGeneration,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "📚 Сделать работу более развернутой и глубокой (ГОСТ)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.5.sp
+                    )
+                }
             }
 
             // Quick Continue Button to expand / complete the document without missing parts
