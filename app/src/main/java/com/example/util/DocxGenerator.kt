@@ -181,23 +181,177 @@ object DocxGenerator {
     }
 
     /**
-     * Cleans stray markdown symbols like **, *, __, ` so they never leak into the document text.
+     * Converts a string of digits/symbols to Unicode superscripts.
      */
-    fun cleanStrayMarkdown(text: String): String {
-        return text
+    fun toSuperscript(str: String): String {
+        val map = mapOf(
+            '0' to '⁰', '1' to '¹', '2' to '²', '3' to '³', '4' to '⁴',
+            '5' to '⁵', '6' to '⁶', '7' to '⁷', '8' to '⁸', '9' to '⁹',
+            '+' to '⁺', '-' to '⁻', '=' to '⁼', '(' to '⁽', ')' to '⁾',
+            'n' to 'ⁿ', 'i' to 'ⁱ', 'x' to 'ˣ', 'y' to 'ʸ'
+        )
+        return str.map { map[it] ?: it }.joinToString("")
+    }
+
+    /**
+     * Converts a string of digits/symbols to Unicode subscripts.
+     */
+    fun toSubscript(str: String): String {
+        val map = mapOf(
+            '0' to '₀', '1' to '₁', '2' to '₂', '3' to '₃', '4' to '₄',
+            '5' to '₅', '6' to '₆', '7' to '₇', '8' to '₈', '9' to '₉',
+            '+' to '₊', '-' to '₋', '=' to '₌', '(' to '₍', ')' to '₎',
+            'a' to 'ₐ', 'e' to 'ₑ', 'o' to 'ₒ', 'x' to 'ₓ', 'i' to 'ᵢ',
+            'j' to 'ⱼ', 'k' to 'ₖ', 'l' to 'ₗ', 'm' to 'ₘ', 'n' to 'ₙ',
+            'p' to 'ₚ', 's' to 'ₛ', 't' to 'ₜ'
+        )
+        return str.map { map[it] ?: it }.joinToString("")
+    }
+
+    /**
+     * Cleans stray markdown symbols and converts raw LaTeX/math syntax to clean, readable Unicode.
+     */
+    fun cleanAcademicTextAndFormulas(text: String): String {
+        val sanitized = FormulaSanitizer.cleanFormulasAndText(text)
+        var s = sanitized
             .replace("**", "")
             .replace("__", "")
             .replace("```", "")
             .replace("`", "")
-            .replace(Regex("""^#{1,6}\s*"""), "")
-            .replace(Regex("""\s*#{1,6}$"""), "")
-            .trim()
+            .replace(Regex("""(?m)^#{1,6}\s*"""), "")
+            .replace(Regex("""(?m)\s*#{1,6}$"""), "")
+
+        // Strip LaTeX math delimiters: $$, \[, \], \(, \), $
+        s = s.replace("$$", "")
+            .replace("\\[", "")
+            .replace("\\]", "")
+            .replace("\\(", "")
+            .replace("\\)", "")
+            .replace("$", "")
+
+        // LaTeX fractions: \frac{A}{B} -> (A) / (B)
+        val fracRegex = Regex("""\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}""")
+        var fracMatch = fracRegex.find(s)
+        var fracIter = 0
+        while (fracMatch != null && fracIter < 25) {
+            val num = fracMatch.groupValues[1].trim()
+            val den = fracMatch.groupValues[2].trim()
+            s = s.replaceRange(fracMatch.range, "($num) / ($den)")
+            fracMatch = fracRegex.find(s)
+            fracIter++
+        }
+
+        // LaTeX roots
+        s = s.replace(Regex("""\\sqrt\s*\[(.*?)\]\s*\{(.*?)\}""")) { "(${it.groupValues[1]})√(${it.groupValues[2]})" }
+        s = s.replace(Regex("""\\sqrt\s*\{(.*?)\}""")) { "√(${it.groupValues[1]})" }
+
+        // Math operators and symbols
+        s = s.replace("\\cdot", "·")
+            .replace("\\times", "×")
+            .replace("\\pm", "±")
+            .replace("\\approx", "≈")
+            .replace("\\neq", "≠")
+            .replace("\\ne", "≠")
+            .replace("\\leq", "≤")
+            .replace("\\le", "≤")
+            .replace("\\geq", "≥")
+            .replace("\\ge", "≥")
+            .replace("\\infty", "∞")
+            .replace("\\sum", "∑")
+            .replace("\\int", "∫")
+            .replace("\\in", "∈")
+            .replace("\\degree", "°")
+            .replace("^\\circ", "°")
+            .replace("\\circ", "°")
+            .replace("\\quad", " ")
+            .replace("\\qquad", "   ")
+
+        // Greek letters
+        s = s.replace("\\alpha", "α")
+            .replace("\\beta", "β")
+            .replace("\\gamma", "γ")
+            .replace("\\Gamma", "Γ")
+            .replace("\\delta", "δ")
+            .replace("\\Delta", "Δ")
+            .replace("\\epsilon", "ε")
+            .replace("\\varepsilon", "ε")
+            .replace("\\zeta", "ζ")
+            .replace("\\eta", "η")
+            .replace("\\theta", "θ")
+            .replace("\\Theta", "Θ")
+            .replace("\\lambda", "λ")
+            .replace("\\Lambda", "Λ")
+            .replace("\\mu", "μ")
+            .replace("\\nu", "ν")
+            .replace("\\xi", "ξ")
+            .replace("\\pi", "π")
+            .replace("\\Pi", "Π")
+            .replace("\\rho", "ρ")
+            .replace("\\sigma", "σ")
+            .replace("\\Sigma", "Σ")
+            .replace("\\tau", "τ")
+            .replace("\\phi", "φ")
+            .replace("\\Phi", "Φ")
+            .replace("\\chi", "χ")
+            .replace("\\psi", "ψ")
+            .replace("\\omega", "ω")
+            .replace("\\Omega", "Ω")
+
+        // \text{...}, \mathrm{...}, etc.
+        s = s.replace(Regex("""\\(?:text|mathrm|mathbf|mathit|textbf|textit)\s*\{([^{}]+)\}""")) { it.groupValues[1] }
+
+        // Exponents & subscripts with braces
+        s = s.replace(Regex("""\^\{([0-9a-zA-Z+-]+)\}""")) { toSuperscript(it.groupValues[1]) }
+        s = s.replace(Regex("""_\{([0-9a-zA-Z+-]+)\}""")) { toSubscript(it.groupValues[1]) }
+
+        // Common simple exponents & subscripts
+        s = s.replace("^2", "²")
+            .replace("^3", "³")
+            .replace("^1", "¹")
+            .replace("^0", "⁰")
+            .replace("^n", "ⁿ")
+            .replace("_0", "₀")
+            .replace("_1", "₁")
+            .replace("_2", "₂")
+            .replace("_3", "₃")
+            .replace("_i", "ᵢ")
+
+        // LaTeX arrows and modifiers
+        s = s.replace("\\rightarrow", "→")
+            .replace("\\leftarrow", "←")
+            .replace("\\to", "→")
+            .replace("\\limits", "")
+            .replace("\\left", "")
+            .replace("\\right", "")
+
+        // Remove stray braces left over from math
+        s = s.replace(Regex("""\{([0-9a-zA-Zа-яА-ЯёЁ_\-+=/· ]+)\}""")) { it.groupValues[1] }
+
+        return s.trim()
+    }
+
+    /**
+     * Cleans stray markdown symbols like **, *, __, ` so they never leak into the document text.
+     */
+    fun cleanStrayMarkdown(text: String): String {
+        return cleanAcademicTextAndFormulas(text)
+    }
+
+    /**
+     * Checks if a line represents an entry in a Table of Contents (Содержание / Оглавление).
+     */
+    fun isTocEntry(trimmed: String): Boolean {
+        val clean = trimmed.removePrefix("#").trim()
+        if (clean.contains("...") || clean.contains("…") || clean.contains(". . .")) return true
+        if (clean.matches(Regex(""".*?[\s\.\—\-\t]+\d{1,4}$"""))) return true
+        if (clean.contains("](#") || clean.contains("](#_")) return true
+        return false
     }
 
     /**
      * Detects if the document text starts with an academic Title Page (Титульный лист).
      */
-    private fun tryExtractTitlePage(lines: List<String>): Pair<TitlePageInfo?, Int> {
+    fun tryExtractTitlePage(lines: List<String>): Pair<TitlePageInfo?, Int> {
         val nonBlankLines = lines.mapIndexed { idx, s -> idx to s.trim() }.filter { it.second.isNotBlank() }
         if (nonBlankLines.size < 5) return null to 0
 
@@ -364,6 +518,8 @@ object DocxGenerator {
             return false
         }
 
+        var inToc = false
+
         for (rawLine in remainingLines) {
             val trimmed = rawLine.trim()
             val upperTrimmed = trimmed.uppercase().removePrefix("#").trim()
@@ -372,8 +528,50 @@ object DocxGenerator {
             if (upperTrimmed == "--- РАЗРЫВ СТРАНИЦЫ ---" || upperTrimmed == "[РАЗРЫВ СТРАНИЦЫ]" ||
                 upperTrimmed == "[PAGE_BREAK]" || (trimmed == "---" && phase == 1)) {
                 flushTable()
-                bodyElements.add(BodyElement.PageBreak)
+                if (bodyElements.isEmpty() || bodyElements.last() !is BodyElement.PageBreak) {
+                    bodyElements.add(BodyElement.PageBreak)
+                }
+                inToc = false
                 continue
+            }
+
+            // Detect Table of Contents (Содержание / Оглавление)
+            if (upperTrimmed == "СОДЕРЖАНИЕ" || upperTrimmed == "ОГЛАВЛЕНИЕ" ||
+                upperTrimmed.startsWith("СОДЕРЖАНИЕ ") || upperTrimmed.startsWith("ОГЛАВЛЕНИЕ ")) {
+                flushTable()
+                val content = cleanStrayMarkdown(upperTrimmed)
+                bodyElements.add(
+                    BodyElement.Paragraph(
+                        text = content,
+                        isHeading = true,
+                        headingLevel = 1,
+                        isCentered = true,
+                        isPageBreakBefore = true,
+                        runs = parseInlineRuns(content, inheritBold = true)
+                    )
+                )
+                inToc = true
+                phase = 1
+                continue
+            }
+
+            if (inToc) {
+                if (isTocEntry(trimmed) || (trimmed.isNotBlank() && !isMajorAcademicSection(upperTrimmed) && !trimmed.startsWith("# "))) {
+                    val content = cleanStrayMarkdown(trimmed)
+                    bodyElements.add(
+                        BodyElement.Paragraph(
+                            text = content,
+                            isHeading = false,
+                            headingLevel = 0,
+                            isCentered = false,
+                            isPageBreakBefore = false,
+                            runs = parseInlineRuns(content)
+                        )
+                    )
+                    continue
+                } else {
+                    inToc = false
+                }
             }
 
             if (phase == 0) {
@@ -583,6 +781,10 @@ object DocxGenerator {
     }
 
     private fun isMajorAcademicSection(upper: String): Boolean {
+        // If it has dot leader or ends with page number, it's a TOC line, never a section header!
+        if (upper.contains("...") || upper.contains("…") || upper.matches(Regex(""".*?[\s\.\—\-\t]+\d{1,4}$"""))) {
+            return false
+        }
         return upper == "СОДЕРЖАНИЕ" || upper == "ОГЛАВЛЕНИЕ" ||
                 upper == "ПЕРЕЧЕНЬ СОКРАЩЕНИЙ И УСЛОВНЫХ ОБОЗНАЧЕНИЙ" ||
                 upper == "СПИСОК СОКРАЩЕНИЙ" ||
@@ -591,7 +793,8 @@ object DocxGenerator {
                 upper == "СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ" ||
                 upper == "СПИСОК ЛИТЕРАТУРЫ" ||
                 upper == "СПИСОК ИСТОЧНИКОВ" ||
-                upper == "ПРИЛОЖЕНИЯ" || upper.startsWith("ПРИЛОЖЕНИЕ ") ||
+                upper == "ПРИЛОЖЕНИЯ" ||
+                (upper.startsWith("ПРИЛОЖЕНИЕ ") && upper.length < 40) ||
                 upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*"""))
     }
 
@@ -756,14 +959,21 @@ $sigRel</Relationships>"""
         }
 
         // 4. BODY ELEMENTS (Paragraphs, Tables, Headings, Page Breaks)
-        for (element in structure.bodyElements) {
+        var lastWasPageBreak = (structure.titlePageInfo != null)
+        for ((elemIdx, element) in structure.bodyElements.withIndex()) {
             when (element) {
                 is BodyElement.PageBreak -> {
-                    sb.append("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>\n")
+                    val hasMoreContent = structure.bodyElements.drop(elemIdx + 1)
+                        .any { it !is BodyElement.PageBreak && (it !is BodyElement.Paragraph || it.text.isNotBlank()) }
+                    if (!lastWasPageBreak && hasMoreContent) {
+                        sb.append("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>\n")
+                        lastWasPageBreak = true
+                    }
                 }
                 is BodyElement.Paragraph -> {
-                    if (element.isPageBreakBefore) {
+                    if (element.isPageBreakBefore && !lastWasPageBreak) {
                         sb.append("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>\n")
+                        lastWasPageBreak = true
                     }
 
                     sb.append("<w:p>\n")
@@ -812,8 +1022,12 @@ $sigRel</Relationships>"""
                     }
 
                     sb.append("</w:p>\n")
+                    if (element.text.isNotBlank()) {
+                        lastWasPageBreak = false
+                    }
                 }
                 is BodyElement.Table -> {
+                    lastWasPageBreak = false
                     renderDocxTable(sb, element)
                 }
             }
@@ -1101,14 +1315,21 @@ $sigRel</Relationships>"""
         }
 
         // 3. Body paragraphs
-        for (element in structure.bodyElements) {
+        var lastWasPageBreak = (structure.titlePageInfo != null)
+        for ((elemIdx, element) in structure.bodyElements.withIndex()) {
             when (element) {
                 is BodyElement.PageBreak -> {
-                    sb.append("\\page\n")
+                    val hasMoreContent = structure.bodyElements.drop(elemIdx + 1)
+                        .any { it !is BodyElement.PageBreak && (it !is BodyElement.Paragraph || it.text.isNotBlank()) }
+                    if (!lastWasPageBreak && hasMoreContent) {
+                        sb.append("\\page\n")
+                        lastWasPageBreak = true
+                    }
                 }
                 is BodyElement.Paragraph -> {
-                    if (element.isPageBreakBefore) {
+                    if (element.isPageBreakBefore && !lastWasPageBreak) {
                         sb.append("\\page\n")
+                        lastWasPageBreak = true
                     }
 
                     if (element.isHeading) {
@@ -1129,8 +1350,12 @@ $sigRel</Relationships>"""
                         renderRtfRuns(sb, element.runs)
                         sb.append("\\par\n")
                     }
+                    if (element.text.isNotBlank()) {
+                        lastWasPageBreak = false
+                    }
                 }
                 is BodyElement.Table -> {
+                    lastWasPageBreak = false
                     for (row in listOf(element.headers) + element.rows) {
                         sb.append("\\trowd\\trgaph108\\trleft0\n")
                         var currentWidth = 0

@@ -618,12 +618,17 @@ object ShareExportUtil {
                 var activePage: PdfDocument.Page? = null
                 var activeCanvas: Canvas? = null
                 var currentY = marginTop
+                var pageHasContent = false
 
                 fun startNewPage() {
+                    if (!pageHasContent && pageCount > 0) {
+                        return
+                    }
                     if (!dryRun && activePage != null) {
                         pdfDocument.finishPage(activePage)
                     }
                     pageCount++
+                    pageHasContent = false
                     currentY = marginTop
 
                     if (!dryRun) {
@@ -875,7 +880,7 @@ object ShareExportUtil {
                         cityYearLayout.draw(activeCanvas!!)
                         activeCanvas?.restore()
                     }
-
+                    pageHasContent = true
                     startNewPage()
                 } else {
                     if (docStructure.isOfficialDocument && docStructure.headerLines.isNotEmpty()) {
@@ -897,6 +902,7 @@ object ShareExportUtil {
                             currentY += hLayout.height + 3f
                         }
                         currentY += 14f
+                        pageHasContent = true
                     }
 
                     // Render Title on Page 1 (Centered for official documents)
@@ -907,6 +913,7 @@ object ShareExportUtil {
                         activeCanvas?.restore()
                     }
                     currentY += titleLayout.height + (if (docStructure.isOfficialDocument) 16f else 8f)
+                    pageHasContent = true
 
                     // Render Metadata on Page 1
                     if (metaLayout != null) {
@@ -953,13 +960,17 @@ object ShareExportUtil {
 
                 // Render Body Paragraphs & Elements with clean markdown formatting
                 if (docStructure.bodyElements.isNotEmpty()) {
-                    for (element in docStructure.bodyElements) {
+                    for ((elemIdx, element) in docStructure.bodyElements.withIndex()) {
                         when (element) {
                             is DocxGenerator.BodyElement.PageBreak -> {
-                                startNewPage()
+                                val hasMoreContent = docStructure.bodyElements.drop(elemIdx + 1)
+                                    .any { it !is DocxGenerator.BodyElement.PageBreak && (it !is DocxGenerator.BodyElement.Paragraph || it.text.isNotBlank()) }
+                                if (pageHasContent && hasMoreContent) {
+                                    startNewPage()
+                                }
                             }
                             is DocxGenerator.BodyElement.Paragraph -> {
-                                if (element.isPageBreakBefore) {
+                                if (element.isPageBreakBefore && pageHasContent) {
                                     startNewPage()
                                 }
                                 val spanBuilder = SpannableStringBuilder()
@@ -994,6 +1005,7 @@ object ShareExportUtil {
                                             activeCanvas?.restore()
                                         }
                                         currentY += pLayout.height + 6f
+                                        pageHasContent = true
                                     } else {
                                         // Line-by-line pagination
                                         var lineIdx = 0
@@ -1031,6 +1043,7 @@ object ShareExportUtil {
                                                     activeCanvas?.restore()
                                                 }
                                                 currentY += subLayout.height + 4f
+                                                pageHasContent = true
                                             }
                                             lineIdx += fitCount
                                             if (lineIdx < pLayout.lineCount) {
@@ -1070,6 +1083,7 @@ object ShareExportUtil {
                                     }
                                 }
                                 currentY += rowHeight
+                                pageHasContent = true
 
                                 for (row in element.rows) {
                                     if (currentY + rowHeight > usableBottomY) {
@@ -1086,6 +1100,7 @@ object ShareExportUtil {
                                         }
                                     }
                                     currentY += rowHeight
+                                    pageHasContent = true
                                 }
                                 currentY += 10f
                             }

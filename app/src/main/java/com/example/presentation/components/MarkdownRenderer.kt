@@ -44,8 +44,8 @@ fun MarkdownRenderer(
     ) {
         var lineIndex = 0
         while (lineIndex < lines.size) {
-            val line = lines[lineIndex]
-            val trimmed = line.trim()
+            val rawLine = lines[lineIndex]
+            val trimmed = rawLine.trim()
 
             if (trimmed.startsWith("```")) {
                 if (inCodeBlock) {
@@ -62,10 +62,12 @@ fun MarkdownRenderer(
             }
 
             if (inCodeBlock) {
-                codeBlockLines.add(line)
+                codeBlockLines.add(rawLine)
                 lineIndex++
                 continue
             }
+
+            val line = com.example.util.FormulaSanitizer.cleanFormulasAndText(rawLine)
 
             // Check if this line is part of a markdown table: | ... |
             if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2) {

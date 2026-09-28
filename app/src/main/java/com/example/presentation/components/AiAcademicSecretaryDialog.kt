@@ -88,6 +88,65 @@ fun AiAcademicSecretaryDialog(
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var templateDropdownExpanded by remember { mutableStateOf(false) }
+    var showTitlePageDialog by remember { mutableStateOf(false) }
+    var requisites by remember {
+        mutableStateOf(
+            TitlePageRequisites(
+                topic = initialNote?.title ?: ""
+            )
+        )
+    }
+    var customTitlePageText by remember { mutableStateOf<String?>(null) }
+
+    fun assembleUnifiedDocument(): String {
+        val modelTexts = messages.filter { !it.isUser }.map { it.text.trim() }.filter { it.isNotBlank() }
+        if (modelTexts.isEmpty()) return ""
+
+        val rawCombined = if (modelTexts.size == 1) {
+            modelTexts.first()
+        } else {
+            val sb = StringBuilder()
+            modelTexts.forEachIndexed { index, part ->
+                if (index == 0) {
+                    sb.append(part)
+                } else {
+                    val lines = part.lines()
+                    val filteredLines = mutableListOf<String>()
+                    var skipHeading = true
+                    for (line in lines) {
+                        val trimmedL = line.trim()
+                        val upper = trimmedL.uppercase().removePrefix("#").trim()
+                        if (skipHeading && (trimmedL.startsWith("# ") || upper.startsWith("ТЕМА:") || upper.startsWith("РЕФЕРАТ") || upper.startsWith("КУРСОВАЯ") || upper.contains("РАЗРЫВ СТРАНИЦЫ"))) {
+                            continue
+                        }
+                        skipHeading = false
+                        filteredLines.add(line)
+                    }
+                    val cleanContinuation = filteredLines.joinToString("\n").trim()
+                    if (cleanContinuation.isNotBlank()) {
+                        sb.append("\n\n--- РАЗРЫВ СТРАНИЦЫ ---\n\n")
+                        sb.append(cleanContinuation)
+                    }
+                }
+            }
+            sb.toString()
+        }
+
+        val finalText = if (customTitlePageText != null) {
+            val titleText = customTitlePageText!!.trim()
+            val lines = rawCombined.lines()
+            val (existingTitleInfo, titleEndIdx) = DocxGenerator.tryExtractTitlePage(lines)
+            if (existingTitleInfo != null && titleEndIdx > 0 && titleEndIdx < lines.size) {
+                titleText + "\n\n" + lines.subList(titleEndIdx, lines.size).joinToString("\n").trim()
+            } else {
+                titleText + "\n\n" + rawCombined
+            }
+        } else {
+            rawCombined
+        }
+
+        return DocxGenerator.cleanAcademicTextAndFormulas(finalText)
+    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
@@ -252,18 +311,20 @@ fun AiAcademicSecretaryDialog(
         )
     }
 
-    val view = LocalView.current
-    DisposableEffect(view) {
-        val window = (view.parent as? DialogWindowProvider)?.window
-        if (window != null) {
-            window.setLayout(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-        }
-        onDispose {}
+    if (showTitlePageDialog) {
+        TitlePageRequisitesDialog(
+            initialRequisites = requisites,
+            onDismissRequest = { showTitlePageDialog = false },
+            onApply = { newReq, formattedTitlePage ->
+                requisites = newReq
+                customTitlePageText = formattedTitlePage
+                showTitlePageDialog = false
+                if (promptInput.isBlank() && newReq.topic.isNotBlank()) {
+                    promptInput = "Напиши ${newReq.docType.lowercase()} на тему «${newReq.topic}» строго по ГОСТ со всеми обязательными разделами"
+                }
+                Toast.makeText(context, "Реквизиты сохранены для титульного листа!", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     Dialog(
@@ -273,26 +334,38 @@ fun AiAcademicSecretaryDialog(
             decorFitsSystemWindows = false
         )
     ) {
+        val dialogView = LocalView.current
+        DisposableEffect(dialogView) {
+            val window = (dialogView.parent as? DialogWindowProvider)?.window
+            if (window != null) {
+                window.setLayout(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+            }
+            onDispose {}
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.55f))
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .windowInsetsPadding(WindowInsets.ime)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 4.dp, vertical = 2.dp),
             contentAlignment = Alignment.Center
         ) {
             Card(
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(14.dp)
+                        .padding(10.dp)
                 ) {
                     // Top Header with Role Switcher & Controls
                     Row(
@@ -526,6 +599,64 @@ fun AiAcademicSecretaryDialog(
                                 }
                             }
 
+                            // REQUISITES OF TITLE PAGE (РЕКВИЗИТЫ ТИТУЛЬНОГО ЛИСТА ГОСТ)
+                            OutlinedCard(
+                                onClick = { showTitlePageDialog = true },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.outlinedCardColors(
+                                    containerColor = if (customTitlePageText != null)
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                    else
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Badge,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = if (customTitlePageText != null) "✓ Реквизиты титульного листа заданы" else "Реквизиты титульного листа (ГОСТ)",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = if (customTitlePageText != null)
+                                                    "${requisites.docType}: «${requisites.topic.ifBlank { "Тема работы" }}»"
+                                                else
+                                                    "ВУЗ, кафедра, тема, автор, руководитель, город и год...",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        if (customTitlePageText != null) Icons.Filled.Check else Icons.Filled.Edit,
+                                        contentDescription = "Настроить реквизиты",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
                             // TASK DESCRIPTION TEXT FIELD (Поле описания задачи)
                             Text(
                                 text = "Описание задачи / текст запроса:",
@@ -719,6 +850,9 @@ fun AiAcademicSecretaryDialog(
                         // ==========================================
                         // DIALOGUE SCREEN: CHAT WITH MESSAGES, CONTINUING CONVERSATION & REFINEMENTS
                         // ==========================================
+                        val unifiedDoc = assembleUnifiedDocument()
+                        val modelCount = messages.count { !it.isUser }
+
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
@@ -727,6 +861,94 @@ fun AiAcademicSecretaryDialog(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(bottom = 6.dp)
                         ) {
+                            // Unified Document Management Card at the top of dialogue
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                    ),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.AutoStories,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = "Единый документ",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Text(
+                                                    text = if (customTitlePageText != null)
+                                                        "✓ Титульный лист настроен (${requisites.docType})"
+                                                    else
+                                                        "Нажмите «Реквизиты» для титульного листа",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            FilledTonalButton(
+                                                onClick = { showTitlePageDialog = true },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(34.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Badge, null, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Реквизиты", fontSize = 12.sp)
+                                            }
+
+                                            if (repository != null) {
+                                                Button(
+                                                    onClick = {
+                                                        if (unifiedDoc.isNotBlank()) {
+                                                            scope.launch {
+                                                                val title = requisites.topic.ifBlank {
+                                                                    messages.firstOrNull { !it.isUser }?.text?.lines()?.firstOrNull { it.isNotBlank() }?.take(40)?.trim()?.removePrefix("#")?.trim() ?: "Единый_документ"
+                                                                }
+                                                                val newNote = Note(
+                                                                    title = title,
+                                                                    content = unifiedDoc,
+                                                                    folder = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Учеба и Наука" else "Документы",
+                                                                    tags = listOf("единый документ", "гост")
+                                                                )
+                                                                repository.insertNote(newNote)
+                                                                Toast.makeText(context, "Создан единый документ в заметках!", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Save, null, modifier = Modifier.size(15.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Сохранить всё", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             items(messages, key = { it.id }) { msg ->
                                 if (msg.isUser) {
                                     UserMessageBubble(msg = msg)
@@ -742,7 +964,9 @@ fun AiAcademicSecretaryDialog(
                                         onDismissRequest = onDismissRequest,
                                         onContinueGeneration = {
                                             sendMessage("Продолжи составление документа строго с того места, где он прервался. Напиши оставшиеся разделы, заключение, список использованных источников и приложения по ГОСТ.")
-                                        }
+                                        },
+                                        unifiedDocumentText = unifiedDoc,
+                                        totalModelMessagesCount = modelCount
                                     )
                                 }
                             }
@@ -1081,7 +1305,9 @@ private fun ModelMessageCard(
     repository: NoteRepository?,
     onInsertTextIntoNote: ((String) -> Unit)?,
     onDismissRequest: () -> Unit,
-    onContinueGeneration: (() -> Unit)? = null
+    onContinueGeneration: (() -> Unit)? = null,
+    unifiedDocumentText: String? = null,
+    totalModelMessagesCount: Int = 1
 ) {
     var isSavedInApp by remember { mutableStateOf(false) }
 
@@ -1090,6 +1316,9 @@ private fun ModelMessageCard(
             ?.removePrefix("#")?.removePrefix("*")?.trim()
             ?: (if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Научный_материал" else "Официальный_документ")
     }
+
+    val hasMultipleParts = totalModelMessagesCount > 1 && !unifiedDocumentText.isNullOrBlank()
+    val textToExport = if (hasMultipleParts) unifiedDocumentText!! else message.text
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -1226,13 +1455,13 @@ private fun ModelMessageCard(
                         scope.launch {
                             val newNote = Note(
                                 title = baseTitle,
-                                content = message.text,
+                                content = textToExport,
                                 folder = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Учеба и Наука" else "Документы",
-                                tags = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) listOf("профессор", "наука") else listOf("секретарь", "гост")
+                                tags = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) listOf("профессор", "наука", "единый документ") else listOf("секретарь", "гост", "единый документ")
                             )
                             repository.insertNote(newNote)
                             isSavedInApp = true
-                            Toast.makeText(context, "Успешно сохранено в заметки: «$baseTitle»!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, if (hasMultipleParts) "Единый документ успешно сохранен в заметки!" else "Успешно сохранено в заметки: «$baseTitle»!", Toast.LENGTH_LONG).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -1248,19 +1477,43 @@ private fun ModelMessageCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isSavedInApp) "✓ Заметка уже сохранена в приложении" else "Сохранить в заметки приложения",
+                        text = if (isSavedInApp) "✓ Сохранено в приложении" else if (hasMultipleParts) "📄 Сохранить единый документ (все $totalModelMessagesCount разделов)" else "Сохранить в заметки приложения",
                         fontWeight = FontWeight.Bold
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+
+                if (hasMultipleParts) {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                val newNote = Note(
+                                    title = "$baseTitle (фрагмент)",
+                                    content = message.text,
+                                    folder = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Учеба и Наука" else "Документы",
+                                    tags = listOf("фрагмент")
+                                )
+                                repository.insertNote(newNote)
+                                Toast.makeText(context, "Фрагмент сохранен в отдельную заметку", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Filled.ContentCut, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Сохранить только этот фрагмент отдельно", fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
 
             // 2. INSERT INTO OPEN NOTE (if opened from note editor)
             if (onInsertTextIntoNote != null) {
                 FilledTonalButton(
                     onClick = {
-                        onInsertTextIntoNote(message.text)
-                        Toast.makeText(context, "Вставлено в текущую открытую заметку!", Toast.LENGTH_SHORT).show()
+                        onInsertTextIntoNote(textToExport)
+                        Toast.makeText(context, if (hasMultipleParts) "Единый документ вставлен в открытую заметку!" else "Вставлено в текущую открытую заметку!", Toast.LENGTH_SHORT).show()
                         onDismissRequest()
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -1268,7 +1521,7 @@ private fun ModelMessageCard(
                 ) {
                     Icon(Icons.Filled.PostAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Вставить в открытую заметку")
+                    Text(if (hasMultipleParts) "Вставить единый документ целиком" else "Вставить в открытую заметку")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -1282,17 +1535,17 @@ private fun ModelMessageCard(
             ) {
                 // Word .docx
                 FilledTonalButton(
-                    onClick = { exportToDocx(context, baseTitle, message.text) },
+                    onClick = { exportToDocx(context, baseTitle, textToExport) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Description, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Word (.docx)", fontSize = 12.sp)
+                    Text(if (hasMultipleParts) "Word (единый .docx)" else "Word (.docx)", fontSize = 12.sp)
                 }
 
                 // Word .doc (RTF)
                 FilledTonalButton(
-                    onClick = { exportToRtfDoc(context, baseTitle, message.text) },
+                    onClick = { exportToRtfDoc(context, baseTitle, textToExport) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Article, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
@@ -1312,17 +1565,17 @@ private fun ModelMessageCard(
 
                 // PDF (ГОСТ)
                 FilledTonalButton(
-                    onClick = { exportToPdf(context, baseTitle, message.text) },
+                    onClick = { exportToPdf(context, baseTitle, textToExport) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.PictureAsPdf, null, modifier = Modifier.size(16.dp), tint = Color(0xFFC62828))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("PDF (ГОСТ)", fontSize = 12.sp)
+                    Text(if (hasMultipleParts) "PDF (единый ГОСТ)" else "PDF (ГОСТ)", fontSize = 12.sp)
                 }
 
                 // Direct Save to Downloads folder
                 FilledTonalButton(
-                    onClick = { saveDocxDirectlyToDownloads(context, baseTitle, message.text) },
+                    onClick = { saveDocxDirectlyToDownloads(context, baseTitle, textToExport) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp))

@@ -88,6 +88,8 @@ import com.example.presentation.components.AiAcademicSecretaryDialog
 import com.example.presentation.components.AiDocumentExpertDialog
 import com.example.presentation.components.CorporateLetterheadDialog
 import com.example.presentation.components.NoteVersionHistoryDialog
+import com.example.presentation.components.TitlePageRequisites
+import com.example.presentation.components.TitlePageRequisitesDialog
 import com.example.presentation.components.QrBarcodeScannerDialog
 import com.example.presentation.components.QrCodeDocumentDialog
 import com.example.presentation.components.GeminiApiKeyDialog
@@ -166,6 +168,7 @@ fun NoteEditorScreen(
     var showPinUnlockDialog by remember { mutableStateOf(false) }
     var showSignaturePadDialog by remember { mutableStateOf(false) }
     var showUserProfileDialog by remember { mutableStateOf(false) }
+    var showTitlePageDialog by remember { mutableStateOf(false) }
     var showRequisitesMenu by remember { mutableStateOf(false) }
     var showSignatureMenu by remember { mutableStateOf(false) }
     var showAiAcademicSecretaryDialog by remember { mutableStateOf(false) }
@@ -1006,6 +1009,20 @@ fun NoteEditorScreen(
                                         showTopMenu = false
                                         activeTopSubMenu = null
                                         applyUserProfileRequisites()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Титульный лист (ГОСТ)", fontWeight = FontWeight.SemiBold)
+                                            Text("ВУЗ, кафедра, тема, автор, руководитель, год", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.School, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showTitlePageDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
@@ -3558,6 +3575,29 @@ fun NoteEditorScreen(
             onDismissRequest = { showUserProfileDialog = false },
             onSaved = { profile ->
                 Toast.makeText(context, "Реквизиты сохранены", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showTitlePageDialog) {
+        TitlePageRequisitesDialog(
+            initialRequisites = TitlePageRequisites(
+                topic = state.title
+            ),
+            onDismissRequest = { showTitlePageDialog = false },
+            onApply = { req, formattedTitlePage ->
+                showTitlePageDialog = false
+                if (state.title.isBlank() && req.topic.isNotBlank()) {
+                    viewModel.onTitleChange(req.topic)
+                }
+                val currentContent = state.content
+                val updated = if (currentContent.isNotBlank()) {
+                    formattedTitlePage + "\n" + currentContent
+                } else {
+                    formattedTitlePage
+                }
+                viewModel.onContentChange(updated)
+                Toast.makeText(context, "Титульный лист добавлен в документ!", Toast.LENGTH_SHORT).show()
             }
         )
     }
