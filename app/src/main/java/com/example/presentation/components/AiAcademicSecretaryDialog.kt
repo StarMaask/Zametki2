@@ -1,8 +1,12 @@
 package com.example.presentation.components
 
+import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Environment
+import android.speech.RecognizerIntent
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Toast
@@ -40,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import com.example.domain.model.AiAttachment
@@ -47,7 +52,9 @@ import com.example.domain.model.Note
 import com.example.domain.repository.NoteRepository
 import com.example.util.AiAcademicAndSecretaryService
 import com.example.util.AiAttachmentHelper
+import com.example.util.AiChatSessionManager
 import com.example.util.DocxGenerator
+import com.example.util.FormulaSanitizer
 import com.example.util.GeminiOcrService
 import com.example.util.ShareExportUtil
 import com.example.util.XlsxGenerator
@@ -76,27 +83,103 @@ fun AiAcademicSecretaryDialog(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    var selectedRole by remember { mutableStateOf(AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) }
+    val savedSession = remember {
+        if (initialNote == null || initialNote.content.isBlank()) {
+            AiChatSessionManager.loadSession(context)
+        } else null
+    }
+
+    var selectedRole by remember {
+        mutableStateOf(savedSession?.role ?: AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+    }
     var promptInput by remember { mutableStateOf("") }
     var includeNoteContext by remember { mutableStateOf(initialNote != null && initialNote.content.isNotBlank()) }
     var pendingAttachments by remember { mutableStateOf<List<AiAttachment>>(emptyList()) }
     var isProcessingAttachment by remember { mutableStateOf(false) }
 
-    var messages by remember { mutableStateOf<List<AcademicChatMessage>>(emptyList()) }
+    var messages by remember {
+        mutableStateOf(savedSession?.messages ?: emptyList())
+    }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var templateDropdownExpanded by remember { mutableStateOf(false) }
     var showTitlePageDialog by remember { mutableStateOf(false) }
+    var showResetConfirmDialog by remember { mutableStateOf(false) }
     var requisites by remember {
         mutableStateOf(
-            TitlePageRequisites(
+            savedSession?.requisites ?: TitlePageRequisites(
                 topic = initialNote?.title ?: ""
             )
         )
     }
-    var customTitlePageText by remember { mutableStateOf<String?>(null) }
+    var customTitlePageText by remember { mutableStateOf(savedSession?.customTitlePageText) }
+
+    LaunchedEffect(messages, selectedRole, requisites, customTitlePageText) {
+        if (messages.isNotEmpty() || customTitlePageText != null) {
+            AiChatSessionManager.saveSession(
+                context = context,
+                role = selectedRole,
+                messages = messages,
+                requisites = requisites,
+                customTitlePageText = customTitlePageText
+            )
+        }
+    }
+
+    val speechRecognizerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = matches?.firstOrNull()?.trim()
+            if (!spokenText.isNullOrBlank()) {
+                promptInput = if (promptInput.isBlank()) spokenText else "$promptInput $spokenText"
+                Toast.makeText(context, "Голос распознан!", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите задачу — голос преобразуется в текст запроса...")
+            }
+            try {
+                speechRecognizerLauncher.launch(intent)
+            } catch (_: Exception) {
+                Toast.makeText(context, "Распознавание речи недоступно на данном устройстве", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "Требуется доступ к микрофону для голосового ввода", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun startVoiceInput() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите задачу — голос преобразуется в текст запроса...")
+            }
+            try {
+                speechRecognizerLauncher.launch(intent)
+            } catch (_: Exception) {
+                Toast.makeText(context, "Распознавание речи недоступно на данном устройстве", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     fun assembleUnifiedDocument(): String {
         val modelTexts = messages.filter { !it.isUser }.map { it.text.trim() }.filter { it.isNotBlank() }
@@ -327,6 +410,34 @@ fun AiAcademicSecretaryDialog(
         )
     }
 
+    if (showResetConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirmDialog = false },
+            title = { Text("Начать новый диалог?") },
+            text = { Text("Текущий диалог и созданный документ будут сброшены. Вы сможете сформулировать новую задачу с чистого листа.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        messages = emptyList()
+                        errorMessage = null
+                        pendingAttachments = emptyList()
+                        customTitlePageText = null
+                        AiChatSessionManager.clearSession(context)
+                        showResetConfirmDialog = false
+                        Toast.makeText(context, "Начат новый диалог", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Начать заново")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirmDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
@@ -419,9 +530,7 @@ fun AiAcademicSecretaryDialog(
                             if (messages.isNotEmpty()) {
                                 IconButton(
                                     onClick = {
-                                        messages = emptyList()
-                                        errorMessage = null
-                                        pendingAttachments = emptyList()
+                                        showResetConfirmDialog = true
                                     },
                                     modifier = Modifier.size(36.dp)
                                 ) {
@@ -677,17 +786,40 @@ fun AiAcademicSecretaryDialog(
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                 },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = { startVoiceInput() },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Mic,
+                                            contentDescription = "Голосовой ввод задачи",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(min = 110.dp, max = 220.dp),
                                 shape = RoundedCornerShape(14.dp)
                             )
 
-                            // ATTACHMENT ACTIONS & CHIPS
+                            // ATTACHMENT & VOICE ACTIONS
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                OutlinedButton(
+                                    onClick = { startVoiceInput() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Голос", fontSize = 12.sp)
+                                }
+
                                 OutlinedButton(
                                     onClick = {
                                         photoPickerLauncher.launch(
@@ -695,11 +827,11 @@ fun AiAcademicSecretaryDialog(
                                         )
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                    modifier = Modifier.weight(1.1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                                 ) {
                                     Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text("Фото / Скан", fontSize = 12.sp)
                                 }
 
@@ -715,11 +847,11 @@ fun AiAcademicSecretaryDialog(
                                         )
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                    modifier = Modifier.weight(1.1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                                 ) {
                                     Icon(Icons.Filled.Description, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text("Документ", fontSize = 12.sp)
                                 }
                             }
@@ -1212,6 +1344,19 @@ fun AiAcademicSecretaryDialog(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
+                                        },
+                                        trailingIcon = {
+                                            IconButton(
+                                                onClick = { startVoiceInput() },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Mic,
+                                                    contentDescription = "Голосовой ввод",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
                                         },
                                         modifier = Modifier
                                             .weight(1f)

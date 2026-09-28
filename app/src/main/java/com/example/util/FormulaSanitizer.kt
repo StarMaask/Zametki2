@@ -139,6 +139,24 @@ object FormulaSanitizer {
         // 11. Normalize multiple spaces (while preserving newlines)
         text = text.replace(Regex("""[ \t]{2,}"""), " ")
 
+        // 12. Repair words where CJK byte glitch replaced Russian syllables (e.g. "сти的发ская" -> "стическая")
+        text = text.replace("сти的发ская", "стическая")
+            .replace("сти的发ский", "стический")
+            .replace("сти的发ское", "стическое")
+            .replace("сти的发ские", "стические")
+            .replace("сти的发ских", "стических")
+            .replace("сти的发ским", "стическим")
+            .replace("сти的发скими", "стическими")
+            .replace("сти的发ском", "стическом")
+            .replace("сти的发", "стиче")
+            .replace("стиская", "стическая")
+            .replace("стиский", "стический")
+            .replace("стиское", "стическое")
+            .replace("стиские", "стические")
+
+        // 13. Strip any remaining stray Chinese / CJK characters accidentally leaked into Russian/Latin text
+        text = text.replace(Regex("""[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u2E80-\u2EFF\u2F00-\u2FDF\u3000-\u303F\uFF00-\uFFEF]"""), "")
+
         return text
     }
 }
