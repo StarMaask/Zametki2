@@ -1028,6 +1028,20 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
+                                            Text("Содержание / Оглавление (ГОСТ)", fontWeight = FontWeight.SemiBold)
+                                            Text("Авто-нумерация страниц по разделам работы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatListNumbered, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        showTableOfContentsSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
                                             Text("Мои реквизиты автора")
                                             Text("ФИО, должность, организация, контакты", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
@@ -3683,6 +3697,11 @@ fun NoteEditorScreen(
                     val targetScroll = (scrollState.maxValue * ratio).toInt()
                     scrollState.animateScrollTo(targetScroll)
                 }
+            },
+            onUpdateContent = { newContent ->
+                val safeCursor = contentTextFieldValue.selection.start.coerceIn(0, newContent.length)
+                contentTextFieldValue = TextFieldValue(newContent, TextRange(safeCursor))
+                viewModel.onContentChange(newContent)
             }
         )
     }

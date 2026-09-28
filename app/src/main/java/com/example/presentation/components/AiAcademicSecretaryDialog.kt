@@ -57,6 +57,7 @@ import com.example.util.DocxGenerator
 import com.example.util.FormulaSanitizer
 import com.example.util.GeminiOcrService
 import com.example.util.ShareExportUtil
+import com.example.util.TableOfContentsExtractor
 import com.example.util.XlsxGenerator
 import kotlinx.coroutines.launch
 import java.io.File
@@ -228,7 +229,8 @@ fun AiAcademicSecretaryDialog(
             rawCombined
         }
 
-        return DocxGenerator.cleanAcademicTextAndFormulas(finalText)
+        val cleaned = DocxGenerator.cleanAcademicTextAndFormulas(finalText)
+        return TableOfContentsExtractor.synchronizeDocumentToc(cleaned)
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(

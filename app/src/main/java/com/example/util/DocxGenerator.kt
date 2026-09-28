@@ -469,7 +469,8 @@ object DocxGenerator {
      * Parses note content into structured requisites, title pages, sections, tables and footers.
      */
     fun parseStructure(note: Note): ParsedDocumentStructure {
-        val allLines = note.content.lines()
+        val synchronizedContent = TableOfContentsExtractor.synchronizeDocumentToc(note.content)
+        val allLines = synchronizedContent.lines()
         val (titlePageInfo, titlePageEndIndex) = tryExtractTitlePage(allLines)
         val remainingLines = if (titlePageInfo != null && titlePageEndIndex < allLines.size) {
             allLines.subList(titlePageEndIndex, allLines.size)
@@ -780,7 +781,7 @@ object DocxGenerator {
         }
     }
 
-    private fun isMajorAcademicSection(upper: String): Boolean {
+    fun isMajorAcademicSection(upper: String): Boolean {
         // If it has dot leader or ends with page number, it's a TOC line, never a section header!
         if (upper.contains("...") || upper.contains("…") || upper.matches(Regex(""".*?[\s\.\—\-\t]+\d{1,4}$"""))) {
             return false
@@ -793,9 +794,11 @@ object DocxGenerator {
                 upper == "СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ" ||
                 upper == "СПИСОК ЛИТЕРАТУРЫ" ||
                 upper == "СПИСОК ИСТОЧНИКОВ" ||
+                upper == "БИБЛИОГРАФИЧЕСКИЙ СПИСОК" ||
                 upper == "ПРИЛОЖЕНИЯ" ||
                 (upper.startsWith("ПРИЛОЖЕНИЕ ") && upper.length < 40) ||
-                upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*"""))
+                upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*""")) ||
+                (upper.matches(Regex("""^\d+\.\s+[^\.\d].*""")) && !upper.matches(Regex("""^\d+\.\d+.*""")))
     }
 
     private fun escapeXml(text: String): String {

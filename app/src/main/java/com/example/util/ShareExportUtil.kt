@@ -612,6 +612,8 @@ object ShareExportUtil {
             // Attached images
             val imageUris = if (config.includeImages) parseImageUris(note.imageUrisJson) else emptyList()
 
+            val headingPageNumbers = mutableMapOf<String, Int>()
+
             // Two-pass rendering: dryRun measures totalPages, non-dryRun renders real pages
             fun renderPages(dryRun: Boolean, totalPages: Int): Int {
                 var pageCount = 0
@@ -973,8 +975,43 @@ object ShareExportUtil {
                                 if (element.isPageBreakBefore && pageHasContent) {
                                     startNewPage()
                                 }
+
+                                if (dryRun) {
+                                    if (element.isHeading || DocxGenerator.isMajorAcademicSection(element.text.uppercase())) {
+                                        val norm = TableOfContentsExtractor.normalizeTitle(element.text)
+                                        val numPref = TableOfContentsExtractor.extractNumberPrefix(element.text)
+                                        if (norm.isNotBlank() && !headingPageNumbers.containsKey(norm)) {
+                                            headingPageNumbers[norm] = pageCount
+                                        }
+                                        if (numPref != null && !headingPageNumbers.containsKey("num_$numPref")) {
+                                            headingPageNumbers["num_$numPref"] = pageCount
+                                        }
+                                    }
+                                }
+
+                                var textToRender = element.text
+                                var customRuns = element.runs
+                                if (!dryRun && DocxGenerator.isTocEntry(element.text)) {
+                                    val rawTitle = element.text
+                                        .replace(Regex("""[\.\s\—\-\t…]+$"""), "")
+                                        .replace(Regex("""[\.\s\—\-\t…]+\d{1,4}$"""), "")
+                                        .trim()
+                                    val norm = TableOfContentsExtractor.normalizeTitle(rawTitle)
+                                    val numPref = TableOfContentsExtractor.extractNumberPrefix(rawTitle)
+                                    val realPage = headingPageNumbers[norm] ?: (if (numPref != null) headingPageNumbers["num_$numPref"] else null)
+                                    if (realPage != null) {
+                                        val targetLineWidth = 68
+                                        val indent = element.text.takeWhile { it == ' ' || it == '\t' }
+                                        val cleanTitle = rawTitle.removePrefix("#").trim()
+                                        val baseLen = indent.length + cleanTitle.length + 1 + realPage.toString().length
+                                        val dotsCount = (targetLineWidth - baseLen).coerceIn(3, 40)
+                                        textToRender = "$indent$cleanTitle " + ".".repeat(dotsCount) + " $realPage"
+                                        customRuns = listOf(DocxGenerator.FormattedRun(textToRender))
+                                    }
+                                }
+
                                 val spanBuilder = SpannableStringBuilder()
-                                val runs = if (element.runs.isNotEmpty()) element.runs else listOf(DocxGenerator.FormattedRun(element.text, isBold = element.isHeading))
+                                val runs = if (customRuns.isNotEmpty()) customRuns else listOf(DocxGenerator.FormattedRun(textToRender, isBold = element.isHeading))
                                 for (run in runs) {
                                     val start = spanBuilder.length
                                     spanBuilder.append(run.text)

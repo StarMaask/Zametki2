@@ -1,5 +1,6 @@
 package com.example.presentation.components
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -25,10 +27,15 @@ import com.example.util.TocItem
 fun TableOfContentsBottomSheet(
     content: String,
     onDismissRequest: () -> Unit,
-    onSelectSection: (offset: Int, lineNumber: Int) -> Unit
+    onSelectSection: (offset: Int, lineNumber: Int) -> Unit,
+    onUpdateContent: ((String) -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val tocItems = remember(content) {
         TableOfContentsExtractor.extract(content)
+    }
+    val totalPages = remember(content) {
+        TableOfContentsExtractor.calculateTotalPages(content)
     }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -63,12 +70,12 @@ fun TableOfContentsBottomSheet(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "Оглавление лекции",
+                            text = "Содержание и структура",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${tocItems.size} разделов и меток",
+                            text = "${tocItems.size} разделов • Всего ~${totalPages} стр.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -80,14 +87,50 @@ fun TableOfContentsBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Action: Sync or Insert TOC with exact page numbers into note
+            if (onUpdateContent != null && tocItems.isNotEmpty()) {
+                val hasTocInContent = remember(content) {
+                    content.lines().any {
+                        val u = it.trim().uppercase().removePrefix("#").trim()
+                        u == "СОДЕРЖАНИЕ" || u == "ОГЛАВЛЕНИЕ" || u.startsWith("СОДЕРЖАНИЕ ") || u.startsWith("ОГЛАВЛЕНИЕ ")
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val updated = TableOfContentsExtractor.insertOrUpdateAcademicToc(content)
+                        onUpdateContent(updated)
+                        val msg = if (hasTocInContent) "Номера страниц в содержании обновлены!" else "Содержание с точными номерами страниц добавлено!"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (hasTocInContent) Icons.Filled.Sync else Icons.Filled.PostAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (hasTocInContent) "Синхронизировать номера страниц в тексте" else "Вставить содержание с номерами страниц (ГОСТ)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
 
             // Search Filter Field if more than 3 items
             if (tocItems.size > 3) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Поиск по разделам лекции...", fontSize = 14.sp) },
+                    placeholder = { Text("Поиск по разделам документа...", fontSize = 14.sp) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
@@ -125,7 +168,7 @@ fun TableOfContentsBottomSheet(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Используйте #, ## для заголовков или таймкоды [01:30] для быстрого оглавления",
+                            text = "Используйте #, ## или разделы (Введение, 1. Раздел, 1.1) для формирования содержания",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 24.dp),
@@ -198,11 +241,20 @@ fun TableOfContentsBottomSheet(
                                     modifier = Modifier.weight(1f)
                                 )
 
-                                Text(
-                                    text = "стр. ${item.lineNumber}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "Стр. ${item.pageNumber}",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "строка ${item.lineNumber}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
                             }
                         }
                     }
