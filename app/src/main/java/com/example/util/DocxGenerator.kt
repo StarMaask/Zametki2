@@ -1,8 +1,17 @@
 package com.example.util
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.net.Uri
 import com.example.domain.model.Note
 import org.json.JSONArray
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -80,8 +89,31 @@ object DocxGenerator {
             val rows: List<List<String>>
         ) : BodyElement()
 
+        data class Image(
+            val relId: String,
+            val widthEmu: Long,
+            val heightEmu: Long,
+            val caption: String
+        ) : BodyElement()
+
+        data class SchematicFigure(
+            val caption: String,
+            val figureNumber: String,
+            val description: String
+        ) : BodyElement()
+
         object PageBreak : BodyElement()
     }
+
+    data class PreparedDocxImage(
+        val relId: String,
+        val fileName: String,
+        val extension: String,
+        val bytes: ByteArray,
+        val widthEmu: Long,
+        val heightEmu: Long,
+        val caption: String
+    )
 
     private val OFFICIAL_TITLES = setOf(
         "ЗАЯВЛЕНИЕ", "СЛУЖЕБНАЯ ЗАПИСКА", "ДОКЛАДНАЯ ЗАПИСКА",
@@ -342,10 +374,101 @@ object DocxGenerator {
      */
     fun isTocEntry(trimmed: String): Boolean {
         val clean = trimmed.removePrefix("#").trim()
+        if (clean.isBlank()) return false
+        val upper = clean.uppercase()
+
+        // Explicitly NEVER a TOC entry if it's a figure, table, appendix, or inline image
+        if (upper.startsWith("РИСУНОК") || upper.startsWith("ТАБЛИЦА") ||
+            upper.startsWith("ПРИЛОЖЕНИЕ") || upper.startsWith("СХЕМА") ||
+            upper.startsWith("ДИАГРАММА") || upper.startsWith("ИЛЛЮСТРАЦИЯ") ||
+            upper.startsWith("ГРАФИК") || upper.startsWith("![") ||
+            upper.startsWith("[РИСУНОК") || upper.startsWith("[ТАБЛИЦА") ||
+            upper.startsWith("[ПРИЛОЖЕНИЕ") || upper.startsWith("[СХЕМА")
+        ) {
+            return false
+        }
+
+        // Standard dot leader pattern (e.g. "Введение ........... 3")
         if (clean.contains("...") || clean.contains("…") || clean.contains(". . .")) return true
-        if (clean.matches(Regex(""".*?[\s\.\—\-\t]+\d{1,4}$"""))) return true
+        // Markdown anchor link pattern (e.g. "[Введение](#_toc123)")
         if (clean.contains("](#") || clean.contains("](#_")) return true
+        // Section title ending with page number (e.g. "1.1. Название раздела  15")
+        if (clean.matches(Regex("""^(\d+(\.\d+)*|[A-ZА-ЯЁ][\.\)]|[A-ZА-ЯЁ]\b).*?[\s\.\—\-\t]+\d{1,4}$"""))) return true
         return false
+    }
+
+    private fun isIgnoredTitlePageLine(upper: String): Boolean {
+        val trimmed = upper.trim().removePrefix("#").trim()
+        if (trimmed.isBlank()) return true
+        if (trimmed.startsWith("---") || trimmed.startsWith("===") || trimmed.startsWith("***") ||
+            trimmed.startsWith("___") || trimmed.startsWith("<!--") || trimmed.startsWith("```")) {
+            return true
+        }
+        if (trimmed.contains("ТИТУЛЬНЫЙ ЛИСТ") || trimmed.contains("ТИТУЛЬНЫЙ") ||
+            trimmed.contains("РАЗРЫВ СТРАНИЦЫ") || trimmed.contains("ОБРАЗЕЦ") ||
+            trimmed.contains("РЕКВИЗИТЫ") || trimmed.contains("ПРИМЕР ОФОРМЛЕНИЯ") ||
+            trimmed.contains("СТРУКТУРА РАБОТЫ")
+        ) {
+            return true
+        }
+        if (trimmed == "PAGE_BREAK" || trimmed == "[PAGE_BREAK]" ||
+            trimmed.startsWith("[СТРАНИЦА") || trimmed.startsWith("СТРАНИЦА 1")) {
+            return true
+        }
+        if (trimmed.matches(Regex("""^\d+[\)\.]\s+.*""")) &&
+            (trimmed.contains("ТИТУЛЬН") || trimmed.contains("ГОСТ") || trimmed.contains("ЛИСТ"))) {
+            return true
+        }
+        if (trimmed.matches(Regex("""^#+\s*(?:1[\)\.]\s*)?.*(?:ТИТУЛЬН|ГОСТ).*"""))) {
+            return true
+        }
+        if (trimmed.matches(Regex("""^[\(\[]?(?:ГОСТ|по\s+ГОСТ)[^()]*[\)\]]?$""", RegexOption.IGNORE_CASE))) {
+            return true
+        }
+        return false
+    }
+
+    fun cleanQuotes(text: String): String {
+        var s = text.trim()
+        while ((s.startsWith("«") && s.endsWith("»")) ||
+               (s.startsWith("\"") && s.endsWith("\"")) ||
+               (s.startsWith("'") && s.endsWith("'"))) {
+            if (s.length <= 1) break
+            s = s.substring(1, s.length - 1).trim()
+        }
+        return s.trim(' ', '\t', '«', '»', '"', '\'')
+    }
+
+    fun cleanDisplayTopicOrDiscipline(text: String, isDiscipline: Boolean): String {
+        val prefix = if (isDiscipline) "по дисциплине: «" else "на тему: «"
+        val stripped = text
+            .replace(Regex("""^(?i)(?:по дисциплине|дисциплина|на тему|тема курсовой работы|тема работы|тема реферата|тема проекта|тема)\s*[:—\-]?\s*"""), "")
+            .trim()
+        val clean = cleanQuotes(stripped)
+        return "$prefix$clean»"
+    }
+
+    private fun cleanTitlePageLine(text: String): String {
+        return cleanStrayMarkdown(text)
+            .replace(Regex("""^\d+[\)\.]\s*"""), "")
+            .replace(Regex("""^#{1,6}\s*"""), "")
+            .replace(Regex("""\s*#{1,6}$"""), "")
+            .replace(Regex("""^[\*\-_—~|`>•▪▫]+\s*"""), "")
+            .replace(Regex("""\s*[\*\-_—~|`>•▪▫]+$"""), "")
+            .replace(Regex("""^\[(.*?)\]$""")) { it.groupValues[1] }
+            .replace(Regex("""\((?:ГОСТ|по\s+ГОСТ)[^()]*\)""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\[(?:ГОСТ|по\s+ГОСТ)[^\[\]]*\]""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\((?:образец|пример)[^()]*\)""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\[(?:образец|пример)[^\[\]]*\]""", RegexOption.IGNORE_CASE), "")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&laquo;", "«")
+            .replace("&raquo;", "»")
+            .replace("&nbsp;", " ")
+            .trim()
     }
 
     /**
@@ -374,8 +497,12 @@ object DocxGenerator {
         for (i in nonBlankLines.indices) {
             val line = nonBlankLines[i].second
             val upper = line.uppercase().removePrefix("#").trim()
-            if (upper.contains("РАЗРЫВ СТРАНИЦЫ") || upper == "СОДЕРЖАНИЕ" || upper == "ОГЛАВЛЕНИЕ" ||
-                upper.startsWith("ВВЕДЕНИЕ") || (i > 5 && isCityYearLine(upper))) {
+            val cleanUpper = upper.replace(Regex("""^#+\s*"""), "").replace(Regex("""^\d+[\)\.]\s*"""), "").trim()
+            if (upper.contains("РАЗРЫВ СТРАНИЦЫ") ||
+                cleanUpper == "СОДЕРЖАНИЕ" || cleanUpper == "ОГЛАВЛЕНИЕ" ||
+                cleanUpper.startsWith("СОДЕРЖАНИЕ ") || cleanUpper.startsWith("ОГЛАВЛЕНИЕ ") ||
+                cleanUpper.startsWith("ВВЕДЕНИЕ") || cleanUpper.startsWith("ГЛАВА") || cleanUpper.startsWith("РАЗДЕЛ") ||
+                (i > 3 && isCityYearLine(upper))) {
                 endIndex = if (isCityYearLine(upper)) nonBlankLines[i].first + 1 else nonBlankLines[i].first
                 break
             }
@@ -395,7 +522,10 @@ object DocxGenerator {
         var currentSection = 0 // 0=org, 1=type/topic, 2=people, 3=bottom
 
         for (line in titleSlice) {
-            val upper = line.uppercase().removePrefix("#").trim()
+            val cleanLine = cleanTitlePageLine(line)
+            val upper = cleanLine.uppercase()
+            if (cleanLine.isBlank() || isIgnoredTitlePageLine(upper)) continue
+
             val matchedType = ACADEMIC_WORK_TYPES.firstOrNull { upper == it || upper.startsWith("$it ") }
 
             if (matchedType != null) {
@@ -405,40 +535,58 @@ object DocxGenerator {
             }
 
             if (currentSection == 0) {
-                orgLines.add(cleanStrayMarkdown(line))
+                orgLines.add(cleanLine)
             } else if (currentSection == 1) {
-                if (upper.startsWith("ПО ДИСЦИПЛИНЕ") || upper.startsWith("ДИСЦИПЛИНА:")) {
-                    discipline = cleanStrayMarkdown(line)
-                } else if (upper.startsWith("НА ТЕМУ") || upper.startsWith("ТЕМА:")) {
-                    topic = cleanStrayMarkdown(line)
+                if (upper.startsWith("ПО ДИСЦИПЛИНЕ") || upper.startsWith("ДИСЦИПЛИНА:") || upper.startsWith("ДИСЦИПЛИНА ")) {
+                    val disc = cleanLine.replace(Regex("""^(?i)(?:по дисциплине|дисциплина)\s*[:—\-]?\s*"""), "")
+                    discipline = cleanDisplayTopicOrDiscipline(disc, isDiscipline = true)
+                } else if (upper.startsWith("НА ТЕМУ") || upper.startsWith("ТЕМА:") || upper.startsWith("ТЕМА ") || upper.startsWith("ТЕМА КУРСОВОЙ") || upper.startsWith("ТЕМА РАБОТЫ")) {
+                    val cleanTopic = cleanLine.replace(Regex("""^(?i)(?:на тему|тема курсовой работы|тема работы|тема реферата|тема проекта|тема)\s*[:—\-]?\s*"""), "")
+                    topic = cleanDisplayTopicOrDiscipline(cleanTopic, isDiscipline = false)
                 } else if (upper.startsWith("ВЫПОЛНИЛ") || upper.startsWith("АВТОР") || upper.startsWith("СТУДЕНТ")) {
                     currentSection = 2
-                    authorLines.add(cleanStrayMarkdown(line))
+                    val a = cleanQuotes(cleanLine.replace(Regex("""^(?i)(?:выполнил|автор)\s*[:—\-]?\s*"""), "").trim())
+                    val lineText = if (cleanLine.startsWith("Студент", ignoreCase = true)) cleanLine else "Выполнил: $a"
+                    authorLines.add(lineText)
                 } else if (upper.startsWith("ПРОВЕРИЛ") || upper.startsWith("РУКОВОДИТЕЛЬ") || upper.startsWith("НАУЧНЫЙ")) {
                     currentSection = 2
-                    supervisorLines.add(cleanStrayMarkdown(line))
+                    val s = cleanQuotes(cleanLine.replace(Regex("""^(?i)(?:проверил|руководитель|научный руководитель)\s*[:—\-]?\s*"""), "").trim())
+                    val lineText = if (cleanLine.startsWith("Научный", ignoreCase = true) || cleanLine.startsWith("Руководитель", ignoreCase = true)) cleanLine else "Проверил: $s"
+                    supervisorLines.add(lineText)
+                } else if (upper.startsWith("ФАКУЛЬТЕТ") || upper.startsWith("КАФЕДРА") || upper.startsWith("ОТДЕЛЕНИЕ")) {
+                    orgLines.add(cleanLine)
                 } else if (isCityYearLine(upper)) {
-                    cityAndYear = cleanStrayMarkdown(line)
+                    cityAndYear = cleanQuotes(cleanLine)
                     currentSection = 3
                 } else {
-                    if (topic == null) topic = cleanStrayMarkdown(line) else topic += " " + cleanStrayMarkdown(line)
+                    val stripped = cleanQuotes(cleanLine.replace(Regex("""^(?i)(?:на тему|тема работы|тема)\s*[:—\-]?\s*"""), ""))
+                    if (stripped.isNotBlank()) {
+                        if (topic == null) {
+                            topic = cleanDisplayTopicOrDiscipline(stripped, isDiscipline = false)
+                        } else {
+                            val innerTopic = cleanQuotes(topic!!.replace("на тему: «", "").removeSuffix("»"))
+                            topic = "на тему: «$innerTopic $stripped»"
+                        }
+                    }
                 }
             } else if (currentSection == 2) {
                 if (upper.startsWith("ПРОВЕРИЛ") || upper.startsWith("РУКОВОДИТЕЛЬ") || upper.startsWith("НАУЧНЫЙ")) {
-                    supervisorLines.add(cleanStrayMarkdown(line))
+                    val s = cleanQuotes(cleanLine.replace(Regex("""^(?i)(?:проверил|руководитель|научный руководитель)\s*[:—\-]?\s*"""), "").trim())
+                    val lineText = if (cleanLine.startsWith("Научный", ignoreCase = true) || cleanLine.startsWith("Руководитель", ignoreCase = true)) cleanLine else "Проверил: $s"
+                    supervisorLines.add(lineText)
                 } else if (isCityYearLine(upper)) {
-                    cityAndYear = cleanStrayMarkdown(line)
+                    cityAndYear = cleanQuotes(cleanLine)
                     currentSection = 3
                 } else {
                     if (supervisorLines.isNotEmpty()) {
-                        supervisorLines.add(cleanStrayMarkdown(line))
+                        supervisorLines.add(cleanLine)
                     } else {
-                        authorLines.add(cleanStrayMarkdown(line))
+                        authorLines.add(cleanLine)
                     }
                 }
             } else {
                 if (isCityYearLine(upper)) {
-                    cityAndYear = cleanStrayMarkdown(line)
+                    cityAndYear = cleanQuotes(cleanLine)
                 }
             }
         }
@@ -447,13 +595,25 @@ object DocxGenerator {
             cityAndYear = "Москва, ${SimpleDateFormat("yyyy", Locale.getDefault()).format(Date())}"
         }
 
+        val filteredOrg = orgLines.filter { line ->
+            val u = line.uppercase()
+            !isIgnoredTitlePageLine(u) &&
+            !u.startsWith("ВЫПОЛНИЛ") && !u.startsWith("ПРОВЕРИЛ") &&
+            !u.startsWith("АВТОР") && !u.startsWith("СТУДЕНТ") &&
+            !u.startsWith("РУКОВОДИТЕЛЬ") && !u.startsWith("НАУЧНЫЙ") &&
+            !u.startsWith("ТЕМА") && !u.startsWith("НА ТЕМУ") && !u.startsWith("ДИСЦИПЛИНА") &&
+            line.length in 3..140
+        }
+        val filteredAuthor = authorLines.filter { !isIgnoredTitlePageLine(it.uppercase()) }
+        val filteredSupervisor = supervisorLines.filter { !isIgnoredTitlePageLine(it.uppercase()) }
+
         val info = TitlePageInfo(
-            organizationLines = if (orgLines.isNotEmpty()) orgLines else listOf("МИНИСТЕРСТВО НАУКИ И ВЫСШЕГО ОБРАЗОВАНИЯ РОССИЙСКОЙ ФЕДЕРАЦИИ"),
+            organizationLines = if (filteredOrg.isNotEmpty()) filteredOrg else listOf("МИНИСТЕРСТВО НАУКИ И ВЫСШЕГО ОБРАЗОВАНИЯ РОССИЙСКОЙ ФЕДЕРАЦИИ"),
             documentType = foundDocType,
             discipline = discipline,
             topic = topic,
-            authorLines = authorLines,
-            supervisorLines = supervisorLines,
+            authorLines = filteredAuthor,
+            supervisorLines = filteredSupervisor,
             cityAndYear = cityAndYear
         )
 
@@ -461,8 +621,17 @@ object DocxGenerator {
     }
 
     private fun isCityYearLine(upper: String): Boolean {
-        return (upper.contains("202") || upper.contains("203")) &&
-                (upper.contains("МОСКВА") || upper.contains("САНКТ-ПЕТЕРБУРГ") || upper.contains("Г.") || upper.length < 35)
+        if (upper.contains("ГОСТ") || upper.contains("ТИТУЛЬН") || upper.contains("ГРУПП") || upper.contains("КУРС")) return false
+        val hasYear = Regex("""\b(202\d|203\d)\b""").containsMatchIn(upper)
+        if (!hasYear) return false
+        val hasCity = upper.contains("МОСКВА") || upper.contains("САНКТ-ПЕТЕРБУРГ") ||
+                upper.contains("НОВОСИБИРСК") || upper.contains("ЕКАТЕРИНБУРГ") ||
+                upper.contains("КАЗАНЬ") || upper.contains("НИЖНИЙ НОВГОРОД") ||
+                upper.contains("ТОМСК") || upper.contains("САМАРА") ||
+                upper.contains("Г.") || upper.contains("ГОРОД") ||
+                upper.matches(Regex("""^[А-ЯЁA-Z\s\.\-]+,\s*(202\d|203\d)(\s*г\.?)?$""")) ||
+                upper.matches(Regex("""^(202\d|203\d)(\s*г\.?)?$"""))
+        return hasCity
     }
 
     /**
@@ -529,7 +698,8 @@ object DocxGenerator {
             if (upperTrimmed == "--- РАЗРЫВ СТРАНИЦЫ ---" || upperTrimmed == "[РАЗРЫВ СТРАНИЦЫ]" ||
                 upperTrimmed == "[PAGE_BREAK]" || (trimmed == "---" && phase == 1)) {
                 flushTable()
-                if (bodyElements.isEmpty() || bodyElements.last() !is BodyElement.PageBreak) {
+                val hasPrecedingContent = bodyElements.any { it !is BodyElement.PageBreak && (it !is BodyElement.Paragraph || it.text.isNotBlank()) }
+                if (hasPrecedingContent && (bodyElements.isEmpty() || bodyElements.last() !is BodyElement.PageBreak)) {
                     bodyElements.add(BodyElement.PageBreak)
                 }
                 inToc = false
@@ -547,7 +717,7 @@ object DocxGenerator {
                         isHeading = true,
                         headingLevel = 1,
                         isCentered = true,
-                        isPageBreakBefore = true,
+                        isPageBreakBefore = (titlePageInfo == null && bodyElements.isNotEmpty()),
                         runs = parseInlineRuns(content, inheritBold = true)
                     )
                 )
@@ -557,7 +727,7 @@ object DocxGenerator {
             }
 
             if (inToc) {
-                if (isTocEntry(trimmed) || (trimmed.isNotBlank() && !isMajorAcademicSection(upperTrimmed) && !trimmed.startsWith("# "))) {
+                if (isTocEntry(trimmed)) {
                     val content = cleanStrayMarkdown(trimmed)
                     bodyElements.add(
                         BodyElement.Paragraph(
@@ -570,8 +740,11 @@ object DocxGenerator {
                         )
                     )
                     continue
+                } else if (trimmed.isBlank()) {
+                    continue
                 } else {
                     inToc = false
+                    // Fall through to normal body processing so this line is NOT lost!
                 }
             }
 
@@ -704,6 +877,75 @@ object DocxGenerator {
         }
 
         if (trimmed.isBlank()) return
+
+        // 1. In-line Markdown Image: ![Caption](uri)
+        val mdImgMatch = Regex("""^!\[(.*?)\]\((.*?)\)""").find(trimmed)
+        if (mdImgMatch != null) {
+            val caption = mdImgMatch.groupValues[1].trim().ifBlank { "Иллюстрационный материал" }
+            val uriOrDesc = mdImgMatch.groupValues[2].trim()
+            val cap = if (caption.startsWith("Рисунок", ignoreCase = true)) caption else "Рисунок — $caption"
+            bodyElements.add(
+                BodyElement.SchematicFigure(
+                    caption = cap,
+                    figureNumber = "",
+                    description = uriOrDesc
+                )
+            )
+            return
+        }
+
+        // Clean any leading markdown formatting like **[Рисунок 1 — ...]**, ### Рисунок 1, etc.
+        val unformatted = trimmed
+            .removePrefix("#").removePrefix("#").removePrefix("#").trim()
+            .removeSurrounding("**", "**").trim()
+            .removeSurrounding("*", "*").trim()
+            .removeSurrounding("`", "`").trim()
+
+        val cleanCandidate = if (unformatted.startsWith("[") && unformatted.endsWith("]")) {
+            unformatted.substring(1, unformatted.length - 1).trim()
+        } else {
+            unformatted
+        }
+
+        // 2. Bracketed or Unbracketed Figure, Schema, Diagram, Graphic Material
+        // Handles: Рисунок 1, Рисунок 1.1, Рисунок А.1, Схема 1, Графический материал, etc.
+        val figRegex = Regex(
+            """^(?:Рисунок|Схема|Иллюстрация|Диаграмма|График|Графический материал|Графические материалы)\s*([А-ЯA-Z\d]+[\.\d]*)?\s*[:—\-\.]?\s*(.+)""",
+            RegexOption.IGNORE_CASE
+        )
+        val figMatch = figRegex.find(cleanCandidate)
+        if (figMatch != null) {
+            val rawNum = figMatch.groupValues[1].trim().trimEnd('.')
+            val rawDesc = figMatch.groupValues[2].trim()
+            val cleanDesc = cleanStrayMarkdown(rawDesc).trim()
+            val cleanNum = rawNum.ifBlank { "" }
+            val cap = if (cleanNum.isNotBlank()) "Рисунок $cleanNum — $cleanDesc" else "Рисунок — $cleanDesc"
+            bodyElements.add(
+                BodyElement.SchematicFigure(
+                    caption = cap,
+                    figureNumber = cleanNum,
+                    description = cleanDesc
+                )
+            )
+            return
+        }
+
+        // 4. Appendix Section: ПРИЛОЖЕНИЕ А / ПРИЛОЖЕНИЕ 1
+        val appMatch = Regex("""^(?:#+\s*)?(ПРИЛОЖЕНИЕ\s+[А-ЯA-Z\d]+(\.|\:)?(\s+.*)?)""", RegexOption.IGNORE_CASE).find(trimmed)
+        if (appMatch != null) {
+            val appTitle = cleanStrayMarkdown(appMatch.groupValues[1].uppercase())
+            bodyElements.add(
+                BodyElement.Paragraph(
+                    text = appTitle,
+                    isHeading = true,
+                    headingLevel = 1,
+                    isCentered = true,
+                    isPageBreakBefore = true,
+                    runs = parseInlineRuns(appTitle, inheritBold = true)
+                )
+            )
+            return
+        }
 
         val upper = trimmed.uppercase().removePrefix("#").trim()
         val isMajorSection = isMajorAcademicSection(upper)
@@ -889,8 +1131,233 @@ object DocxGenerator {
         return sanitized.replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&apos;")
+    }
+
+    /**
+     * Loads a bitmap from Android content URI, file URI, or local file path.
+     */
+    fun loadBitmapFromUriOrPath(context: Context, pathOrUri: String, maxWidth: Int, maxHeight: Int): Bitmap? {
+        return try {
+            val uri = if (pathOrUri.startsWith("content://") || pathOrUri.startsWith("file://")) {
+                Uri.parse(pathOrUri)
+            } else {
+                Uri.fromFile(File(pathOrUri))
+            }
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+            if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+            var sampleSize = 1
+            while (options.outWidth / (sampleSize * 2) >= maxWidth && options.outHeight / (sampleSize * 2) >= maxHeight) {
+                sampleSize *= 2
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val orig = BitmapFactory.decodeStream(stream, null, decodeOptions) ?: return null
+                val scale = minOf(maxWidth.toFloat() / orig.width, maxHeight.toFloat() / orig.height, 1.0f)
+                val scaledW = (orig.width * scale).toInt().coerceAtLeast(1)
+                val scaledH = (orig.height * scale).toInt().coerceAtLeast(1)
+                if (scaledW == orig.width && scaledH == orig.height) orig
+                else Bitmap.createScaledBitmap(orig, scaledW, scaledH, true)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Generates a high-quality academic engineering blueprint/flowchart diagram
+     * compliant with ГОСТ 7.32-2017 and ЕСКД standards.
+     */
+    fun createSchematicDiagramBitmap(title: String, figureNumber: String, description: String): Bitmap {
+        val width = 1200
+        val height = 620
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        // 1. Background
+        val bgPaint = Paint().apply {
+            color = Color.rgb(250, 251, 253)
+            style = Paint.Style.FILL
+        }
+        canvas.drawColor(Color.WHITE)
+        canvas.drawRoundRect(RectF(10f, 10f, (width - 10).toFloat(), (height - 10).toFloat()), 20f, 20f, bgPaint)
+
+        // 2. Blueprint Grid lines
+        val gridPaint = Paint().apply {
+            color = Color.rgb(232, 236, 241)
+            strokeWidth = 1f
+            style = Paint.Style.STROKE
+        }
+        var gx = 25f
+        while (gx < width - 20) {
+            canvas.drawLine(gx, 20f, gx, (height - 20).toFloat(), gridPaint)
+            gx += 35f
+        }
+        var gy = 25f
+        while (gy < height - 20) {
+            canvas.drawLine(20f, gy, (width - 20).toFloat(), gy, gridPaint)
+            gy += 35f
+        }
+
+        // 3. Technical Border
+        val borderPaint = Paint().apply {
+            color = Color.rgb(63, 81, 181)
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+        canvas.drawRoundRect(RectF(14f, 14f, (width - 14).toFloat(), (height - 14).toFloat()), 16f, 16f, borderPaint)
+
+        // 4. Header Bar
+        val headerBarPaint = Paint().apply {
+            color = Color.rgb(232, 234, 246)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(RectF(14f, 14f, (width - 14).toFloat(), 72f), 16f, 16f, headerBarPaint)
+        canvas.drawRect(RectF(14f, 40f, (width - 14).toFloat(), 72f), headerBarPaint)
+
+        val headerTextPaint = Paint().apply {
+            color = Color.rgb(26, 35, 126)
+            textSize = 24f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val cleanHeader = if (title.length > 55) title.take(52) + "..." else title
+        canvas.drawText("СХЕМА: $cleanHeader", 36f, 48f, headerTextPaint)
+
+        val gostTagPaint = Paint().apply {
+            color = Color.rgb(92, 107, 115)
+            textSize = 18f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            isAntiAlias = true
+            textAlign = Paint.Align.RIGHT
+        }
+        canvas.drawText("ГОСТ 7.32-2017", (width - 36).toFloat(), 48f, gostTagPaint)
+
+        // 5. Draw Process Flow / Functional Architecture Blocks
+        val rawSteps = description.split(Regex("""(?i)(?:->|-->|→|;|\n|\t|•|—)"""))
+            .map { it.trim().removePrefix("-").trim() }
+            .filter { it.isNotBlank() && it.length > 2 }
+
+        val steps = if (rawSteps.size in 2..5) {
+            rawSteps
+        } else {
+            listOf(
+                "1. Сбор и ввод данных",
+                "2. Предварительная обработка",
+                "3. Анализ и вычисления",
+                "4. Выходные результаты"
+            )
+        }
+
+        val blockCount = steps.size
+        val totalSpacing = (blockCount - 1) * 35f
+        val blockWidth = ((width - 120f - totalSpacing) / blockCount).coerceIn(160f, 260f)
+        val blockHeight = 160f
+        val startY = 190f
+
+        val blockBgPaint = Paint().apply {
+            color = Color.rgb(237, 242, 247)
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val blockBorderPaint = Paint().apply {
+            color = Color.rgb(33, 150, 243)
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+            isAntiAlias = true
+        }
+        val blockTitlePaint = Paint().apply {
+            color = Color.rgb(33, 33, 33)
+            textSize = 20f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
+        val arrowPaint = Paint().apply {
+            color = Color.rgb(33, 150, 243)
+            strokeWidth = 4f
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        val arrowHeadPaint = Paint().apply {
+            color = Color.rgb(33, 150, 243)
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+
+        val totalWidth = blockCount * blockWidth + totalSpacing
+        var currentX = (width - totalWidth) / 2f
+
+        for (i in 0 until blockCount) {
+            val rect = RectF(currentX, startY, currentX + blockWidth, startY + blockHeight)
+            canvas.drawRoundRect(rect, 14f, 14f, blockBgPaint)
+            canvas.drawRoundRect(rect, 14f, 14f, blockBorderPaint)
+
+            val tabPaint = Paint().apply {
+                color = when (i % 4) {
+                    0 -> Color.rgb(33, 150, 243)
+                    1 -> Color.rgb(76, 175, 80)
+                    2 -> Color.rgb(255, 152, 0)
+                    else -> Color.rgb(156, 39, 176)
+                }
+                style = Paint.Style.FILL
+            }
+            canvas.drawRoundRect(RectF(currentX, startY, currentX + blockWidth, startY + 12f), 14f, 14f, tabPaint)
+
+            val stepText = steps[i]
+            val words = stepText.split(" ")
+            var line1 = ""
+            var line2 = ""
+            for (w in words) {
+                if ((line1 + " " + w).length < 16) {
+                    line1 = (line1 + " " + w).trim()
+                } else {
+                    line2 = (line2 + " " + w).trim()
+                }
+            }
+            val textY = startY + blockHeight / 2f + (if (line2.isNotBlank()) -6f else 8f)
+            canvas.drawText(line1, currentX + blockWidth / 2f, textY, blockTitlePaint)
+            if (line2.isNotBlank()) {
+                canvas.drawText(line2, currentX + blockWidth / 2f, textY + 28f, blockTitlePaint)
+            }
+
+            if (i < blockCount - 1) {
+                val arrowStartX = currentX + blockWidth + 6f
+                val arrowEndX = arrowStartX + 22f
+                val arrowY = startY + blockHeight / 2f
+                canvas.drawLine(arrowStartX, arrowY, arrowEndX, arrowY, arrowPaint)
+
+                val path = android.graphics.Path().apply {
+                    moveTo(arrowEndX + 6f, arrowY)
+                    lineTo(arrowEndX - 6f, arrowY - 8f)
+                    lineTo(arrowEndX - 6f, arrowY + 8f)
+                    close()
+                }
+                canvas.drawPath(path, arrowHeadPaint)
+            }
+
+            currentX += blockWidth + 35f
+        }
+
+        // 6. Footer badge inside box
+        val footerTextPaint = Paint().apply {
+            color = Color.rgb(120, 144, 156)
+            textSize = 16f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("Научно-исследовательский и аналитический графический материал", width / 2f, (height - 40).toFloat(), footerTextPaint)
+
+        return bitmap
     }
 
     /**
@@ -898,6 +1365,7 @@ object DocxGenerator {
      * - Numbering of pages on all pages EXCEPT title page (w:titlePg + footer1.xml)
      * - Academic Title page with page break
      * - Clean runs without stray markdown asterisks
+     * - Embedded high-resolution graphic figures and attached images
      */
     fun generateDocxFile(context: Context, note: Note, includeSignature: Boolean = true): File {
         val cleanTitle = note.title.replace(Regex("[^a-zA-Zа-яА-ЯёЁ0-9_\\-]"), "_").trim('_').take(35).ifBlank { "document" }
@@ -906,11 +1374,74 @@ object DocxGenerator {
 
         val structure = parseStructure(note)
         val hasSignature = includeSignature && SignatureManager.hasSignature(context)
-        val documentXml = buildDocumentXml(note, structure, hasSignature)
+
+        // Prepare all physical and schematic images
+        val attachedUris = ShareExportUtil.parseImageUris(note.imageUrisJson)
+        val preparedImages = mutableListOf<PreparedDocxImage>()
+        val figureElements = structure.bodyElements.filterIsInstance<BodyElement.SchematicFigure>()
+
+        var attachedIdx = 0
+        for (figure in figureElements) {
+            var bmp: Bitmap? = null
+            var caption = figure.caption
+            if (attachedIdx < attachedUris.size) {
+                val uriStr = attachedUris[attachedIdx++]
+                bmp = loadBitmapFromUriOrPath(context, uriStr, 1600, 1200)
+            }
+            if (bmp == null) {
+                val t = figure.caption.removePrefix("Рисунок").trim().removePrefix("—").removePrefix(":").removePrefix("-").trim().ifBlank { "Структурная схема" }
+                bmp = createSchematicDiagramBitmap(t, figure.figureNumber, figure.description)
+            }
+            val stream = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.PNG, 95, stream)
+            val pngBytes = stream.toByteArray()
+            val imgIndex = preparedImages.size + 1
+            val aspect = if (bmp.height > 0) bmp.width.toDouble() / bmp.height.toDouble() else 1.6
+            val hEmu = 3200000L
+            val wEmu = (aspect * hEmu).toLong().coerceIn(2500000L, 5400000L)
+            preparedImages.add(
+                PreparedDocxImage(
+                    relId = "rIdImg$imgIndex",
+                    fileName = "image_$imgIndex.png",
+                    extension = "png",
+                    bytes = pngBytes,
+                    widthEmu = wEmu,
+                    heightEmu = hEmu,
+                    caption = caption
+                )
+            )
+        }
+
+        while (attachedIdx < attachedUris.size) {
+            val uriStr = attachedUris[attachedIdx++]
+            val bmp = loadBitmapFromUriOrPath(context, uriStr, 1600, 1200)
+            if (bmp != null) {
+                val stream = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.PNG, 95, stream)
+                val pngBytes = stream.toByteArray()
+                val imgIndex = preparedImages.size + 1
+                val aspect = if (bmp.height > 0) bmp.width.toDouble() / bmp.height.toDouble() else 1.6
+                val hEmu = 3200000L
+                val wEmu = (aspect * hEmu).toLong().coerceIn(2500000L, 5400000L)
+                preparedImages.add(
+                    PreparedDocxImage(
+                        relId = "rIdImg$imgIndex",
+                        fileName = "image_$imgIndex.png",
+                        extension = "png",
+                        bytes = pngBytes,
+                        widthEmu = wEmu,
+                        heightEmu = hEmu,
+                        caption = "Рисунок $imgIndex — Иллюстрационный материал"
+                    )
+                )
+            }
+        }
+
+        val documentXml = buildDocumentXml(note, structure, hasSignature, preparedImages)
 
         ZipOutputStream(FileOutputStream(docxFile)).use { zos ->
             // 1. [Content_Types].xml
-            val contentTypesXml = buildContentTypesXml(hasSignature)
+            val contentTypesXml = buildContentTypesXml(hasSignature, preparedImages.isNotEmpty())
             zos.putNextEntry(ZipEntry("[Content_Types].xml"))
             zos.write(contentTypesXml.toByteArray(Charsets.UTF_8))
             zos.closeEntry()
@@ -921,7 +1452,7 @@ object DocxGenerator {
             zos.closeEntry()
 
             // 3. word/_rels/document.xml.rels
-            val wordRelsXml = buildWordRelsXml(hasSignature)
+            val wordRelsXml = buildWordRelsXml(hasSignature, preparedImages)
             zos.putNextEntry(ZipEntry("word/_rels/document.xml.rels"))
             zos.write(wordRelsXml.toByteArray(Charsets.UTF_8))
             zos.closeEntry()
@@ -951,7 +1482,14 @@ object DocxGenerator {
                 }
             }
 
-            // 8. word/document.xml
+            // 8. word/media/image_X.png (embedded images & schematic figures)
+            for (img in preparedImages) {
+                zos.putNextEntry(ZipEntry("word/media/${img.fileName}"))
+                zos.write(img.bytes)
+                zos.closeEntry()
+            }
+
+            // 9. word/document.xml
             zos.putNextEntry(ZipEntry("word/document.xml"))
             zos.write(documentXml.toByteArray(Charsets.UTF_8))
             zos.closeEntry()
@@ -982,8 +1520,10 @@ object DocxGenerator {
         return generateRtfDocFile(context, Note(title = title, content = content))
     }
 
-    private fun buildContentTypesXml(hasSignature: Boolean): String {
-        val sigPart = if (hasSignature) "  <Default Extension=\"png\" ContentType=\"image/png\"/>\n" else ""
+    private fun buildContentTypesXml(hasSignature: Boolean, hasImages: Boolean = false): String {
+        val sigPart = if (hasSignature || hasImages) {
+            "  <Default Extension=\"png\" ContentType=\"image/png\"/>\n  <Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>\n"
+        } else ""
         return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -995,19 +1535,70 @@ $sigPart  <Override PartName="/word/document.xml" ContentType="application/vnd.o
 </Types>"""
     }
 
-    private fun buildWordRelsXml(hasSignature: Boolean): String {
-        val sigRel = if (hasSignature) {
-            "  <Relationship Id=\"rIdSig\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/signature.png\"/>\n"
-        } else ""
-        return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
-  <Relationship Id="rIdFtr1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>
-$sigRel</Relationships>"""
+    private fun buildWordRelsXml(hasSignature: Boolean, preparedImages: List<PreparedDocxImage> = emptyList()): String {
+        val sb = StringBuilder()
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n")
+        sb.append("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\n")
+        sb.append("  <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>\n")
+        sb.append("  <Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>\n")
+        sb.append("  <Relationship Id=\"rIdFtr1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>\n")
+        if (hasSignature) {
+            sb.append("  <Relationship Id=\"rIdSig\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/signature.png\"/>\n")
+        }
+        for (img in preparedImages) {
+            sb.append("  <Relationship Id=\"").append(img.relId).append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/").append(img.fileName).append("\"/>\n")
+        }
+        sb.append("</Relationships>")
+        return sb.toString()
     }
 
-    private fun buildDocumentXml(note: Note, structure: ParsedDocumentStructure, hasSignature: Boolean = false): String {
+    private fun renderDocxImageElement(sb: StringBuilder, img: PreparedDocxImage) {
+        val docPrId = (img.relId.hashCode().and(0x7FFFFFFF) % 100000) + 100
+        sb.append("<w:p>\n")
+        sb.append("  <w:pPr>\n")
+        sb.append("    <w:spacing w:before=\"200\" w:after=\"80\" w:line=\"240\" w:lineRule=\"auto\"/>\n")
+        sb.append("    <w:jc w:val=\"center\"/>\n")
+        sb.append("  </w:pPr>\n")
+        sb.append("  <w:r>\n")
+        sb.append("    <w:drawing>\n")
+        sb.append("      <wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">\n")
+        sb.append("        <wp:extent cx=\"").append(img.widthEmu).append("\" cy=\"").append(img.heightEmu).append("\"/>\n")
+        sb.append("        <wp:docPr id=\"").append(docPrId).append("\" name=\"").append(escapeXml(img.fileName)).append("\"/>\n")
+        sb.append("        <a:graphic>\n")
+        sb.append("          <a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\n")
+        sb.append("            <pic:pic>\n")
+        sb.append("              <pic:nvPicPr><pic:cNvPr id=\"").append(docPrId).append("\" name=\"").append(escapeXml(img.fileName)).append("\"/><pic:cNvPicPr/></pic:nvPicPr>\n")
+        sb.append("              <pic:blipFill><a:blip r:embed=\"").append(img.relId).append("\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>\n")
+        sb.append("              <pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"").append(img.widthEmu).append("\" cy=\"").append(img.heightEmu).append("\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>\n")
+        sb.append("            </pic:pic>\n")
+        sb.append("          </a:graphicData>\n")
+        sb.append("        </a:graphic>\n")
+        sb.append("      </wp:inline>\n")
+        sb.append("    </w:drawing>\n")
+        sb.append("  </w:r>\n")
+        sb.append("</w:p>\n")
+
+        sb.append("<w:p>\n")
+        sb.append("  <w:pPr>\n")
+        sb.append("    <w:spacing w:before=\"60\" w:after=\"160\" w:line=\"240\" w:lineRule=\"auto\"/>\n")
+        sb.append("    <w:jc w:val=\"center\"/>\n")
+        sb.append("  </w:pPr>\n")
+        sb.append("  <w:r>\n")
+        sb.append("    <w:rPr>\n")
+        sb.append("      <w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/>\n")
+        sb.append("      <w:sz w:val=\"24\"/>\n")
+        sb.append("    </w:rPr>\n")
+        sb.append("    <w:t xml:space=\"preserve\">").append(escapeXml(img.caption)).append("</w:t>\n")
+        sb.append("  </w:r>\n")
+        sb.append("</w:p>\n")
+    }
+
+    private fun buildDocumentXml(
+        note: Note,
+        structure: ParsedDocumentStructure,
+        hasSignature: Boolean = false,
+        preparedImages: List<PreparedDocxImage> = emptyList()
+    ): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n")
         sb.append("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\n")
@@ -1042,8 +1633,11 @@ $sigRel</Relationships>"""
             }
         }
 
-        // 4. BODY ELEMENTS (Paragraphs, Tables, Headings, Page Breaks)
+        // 4. BODY ELEMENTS (Paragraphs, Tables, Headings, Page Breaks, Figures & Images)
         var lastWasPageBreak = (structure.titlePageInfo != null)
+        val renderedImageRelIds = mutableSetOf<String>()
+        var nextFigureIdx = 0
+
         for ((elemIdx, element) in structure.bodyElements.withIndex()) {
             when (element) {
                 is BodyElement.PageBreak -> {
@@ -1055,6 +1649,10 @@ $sigRel</Relationships>"""
                     }
                 }
                 is BodyElement.Paragraph -> {
+                    if (element.text.isBlank()) {
+                        // Skip blank paragraphs to eliminate unwanted gaps between text, tables, and figures
+                        continue
+                    }
                     if (element.isPageBreakBefore && !lastWasPageBreak) {
                         sb.append("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>\n")
                         lastWasPageBreak = true
@@ -1064,7 +1662,7 @@ $sigRel</Relationships>"""
                     sb.append("  <w:pPr>\n")
 
                     if (element.isHeading) {
-                        val beforeSp = if (element.headingLevel == 1) "360" else "240"
+                        val beforeSp = if (lastWasPageBreak) "120" else (if (element.headingLevel == 1) "360" else "240")
                         val afterSp = "160"
                         sb.append("    <w:spacing w:before=\"$beforeSp\" w:after=\"$afterSp\" w:line=\"360\" w:lineRule=\"auto\"/>\n")
                         sb.append("    <w:jc w:val=\"").append(if (element.isCentered) "center" else "both").append("\"/>\n")
@@ -1106,14 +1704,38 @@ $sigRel</Relationships>"""
                     }
 
                     sb.append("</w:p>\n")
-                    if (element.text.isNotBlank()) {
-                        lastWasPageBreak = false
-                    }
+                    lastWasPageBreak = false
                 }
                 is BodyElement.Table -> {
                     lastWasPageBreak = false
                     renderDocxTable(sb, element)
                 }
+                is BodyElement.SchematicFigure -> {
+                    lastWasPageBreak = false
+                    val img = preparedImages.firstOrNull { it.relId !in renderedImageRelIds && (it.caption == element.caption || (element.figureNumber.isNotBlank() && it.caption.contains(element.figureNumber))) }
+                        ?: preparedImages.firstOrNull { it.relId !in renderedImageRelIds }
+                    if (img != null) {
+                        renderDocxImageElement(sb, img)
+                        renderedImageRelIds.add(img.relId)
+                    }
+                }
+                is BodyElement.Image -> {
+                    lastWasPageBreak = false
+                    val img = preparedImages.firstOrNull { it.relId !in renderedImageRelIds && (it.relId == element.relId || it.caption == element.caption) }
+                        ?: preparedImages.firstOrNull { it.relId !in renderedImageRelIds }
+                    if (img != null) {
+                        renderDocxImageElement(sb, img)
+                        renderedImageRelIds.add(img.relId)
+                    }
+                }
+            }
+        }
+
+        // Render any remaining attached images not explicitly matched
+        for (img in preparedImages) {
+            if (img.relId !in renderedImageRelIds) {
+                renderDocxImageElement(sb, img)
+                renderedImageRelIds.add(img.relId)
             }
         }
 
@@ -1411,6 +2033,7 @@ $sigRel</Relationships>"""
                     }
                 }
                 is BodyElement.Paragraph -> {
+                    if (element.text.isBlank()) continue
                     if (element.isPageBreakBefore && !lastWasPageBreak) {
                         sb.append("\\page\n")
                         lastWasPageBreak = true
@@ -1434,9 +2057,7 @@ $sigRel</Relationships>"""
                         renderRtfRuns(sb, element.runs)
                         sb.append("\\par\n")
                     }
-                    if (element.text.isNotBlank()) {
-                        lastWasPageBreak = false
-                    }
+                    lastWasPageBreak = false
                 }
                 is BodyElement.Table -> {
                     lastWasPageBreak = false
@@ -1454,6 +2075,20 @@ $sigRel</Relationships>"""
                         sb.append("\\row\n")
                     }
                     sb.append("\\pard\\par\n")
+                }
+                is BodyElement.SchematicFigure -> {
+                    lastWasPageBreak = false
+                    sb.append("\\pard\\qc\\b [СХЕМА / ГРАФИЧЕСКИЙ МАТЕРИАЛ]\\b0\\par\n")
+                    sb.append("\\pard\\qc ").append(escapeRtf(element.caption)).append("\\par\n")
+                    if (element.description.isNotBlank()) {
+                        sb.append("\\pard\\qc\\i ").append(escapeRtf(element.description)).append("\\i0\\par\n")
+                    }
+                    sb.append("\\par\n")
+                }
+                is BodyElement.Image -> {
+                    lastWasPageBreak = false
+                    sb.append("\\pard\\qc\\b [ИЛЛЮСТРАЦИЯ]\\b0\\par\n")
+                    sb.append("\\pard\\qc ").append(escapeRtf(element.caption)).append("\\par\\par\n")
                 }
             }
         }

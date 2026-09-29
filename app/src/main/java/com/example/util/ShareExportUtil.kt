@@ -962,6 +962,7 @@ object ShareExportUtil {
 
                 // Render Body Paragraphs & Elements with clean markdown formatting
                 if (docStructure.bodyElements.isNotEmpty()) {
+                    var pdfAttachedIdx = 0
                     for ((elemIdx, element) in docStructure.bodyElements.withIndex()) {
                         when (element) {
                             is DocxGenerator.BodyElement.PageBreak -> {
@@ -972,6 +973,7 @@ object ShareExportUtil {
                                 }
                             }
                             is DocxGenerator.BodyElement.Paragraph -> {
+                                if (element.text.isBlank()) continue
                                 if (element.isPageBreakBefore && pageHasContent) {
                                     startNewPage()
                                 }
@@ -1141,6 +1143,129 @@ object ShareExportUtil {
                                 }
                                 currentY += 10f
                             }
+                            is DocxGenerator.BodyElement.SchematicFigure -> {
+                                val bmp = if (pdfAttachedIdx < imageUris.size) {
+                                    loadScaledBitmap(context, imageUris[pdfAttachedIdx++], (contentWidth * 1.5f).toInt(), 1200)
+                                } else null
+
+                                val figBmp = bmp ?: DocxGenerator.createSchematicDiagramBitmap(
+                                    title = element.caption.removePrefix("Рисунок").trim().removePrefix("—").removePrefix(":").removePrefix("-").trim().ifBlank { "Структурная схема" },
+                                    figureNumber = element.figureNumber,
+                                    description = element.description
+                                )
+
+                                val aspect = if (figBmp.height > 0) figBmp.width.toFloat() / figBmp.height.toFloat() else 1.8f
+                                val figW = contentWidth.toFloat()
+                                val figH = (figW / aspect).coerceIn(160f, 260f)
+                                val capHeight = 32f
+                                val totalFigHeight = figH + capHeight + 14f
+
+                                if (currentY + totalFigHeight > usableBottomY && pageHasContent) {
+                                    startNewPage()
+                                }
+
+                                if (!dryRun && activeCanvas != null) {
+                                    val figRect = RectF(marginLeft, currentY, marginLeft + figW, currentY + figH)
+                                    activeCanvas?.drawBitmap(figBmp, null, figRect, null)
+
+                                    val borderP = Paint().apply {
+                                        color = Color.rgb(200, 210, 225)
+                                        style = Paint.Style.STROKE
+                                        strokeWidth = 1f
+                                    }
+                                    activeCanvas?.drawRoundRect(figRect, 6f, 6f, borderP)
+
+                                    val capPaint = TextPaint(bodyPaint).apply {
+                                        textSize = 10f
+                                        typeface = Typeface.create(noteTypeface, Typeface.NORMAL)
+                                    }
+                                    val capLayout = StaticLayout.Builder.obtain(element.caption, 0, element.caption.length, capPaint, contentWidth)
+                                        .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                                        .build()
+
+                                    activeCanvas?.save()
+                                    activeCanvas?.translate(marginLeft, currentY + figH + 6f)
+                                    capLayout.draw(activeCanvas!!)
+                                    activeCanvas?.restore()
+                                }
+
+                                currentY += totalFigHeight
+                                pageHasContent = true
+                            }
+                            is DocxGenerator.BodyElement.Image -> {
+                                val bmp = if (pdfAttachedIdx < imageUris.size) {
+                                    loadScaledBitmap(context, imageUris[pdfAttachedIdx++], (contentWidth * 1.5f).toInt(), 1200)
+                                } else null
+                                if (bmp != null) {
+                                    val aspect = if (bmp.height > 0) bmp.width.toFloat() / bmp.height.toFloat() else 1.6f
+                                    val figW = contentWidth.toFloat()
+                                    val figH = (figW / aspect).coerceIn(160f, 300f)
+                                    val totalH = figH + 36f
+
+                                    if (currentY + totalH > usableBottomY && pageHasContent) {
+                                        startNewPage()
+                                    }
+
+                                    if (!dryRun && activeCanvas != null) {
+                                        val rect = RectF(marginLeft, currentY, marginLeft + figW, currentY + figH)
+                                        activeCanvas?.drawBitmap(bmp, null, rect, null)
+
+                                        val capPaint = TextPaint(bodyPaint).apply {
+                                            textSize = 10f
+                                            typeface = Typeface.create(noteTypeface, Typeface.NORMAL)
+                                        }
+                                        val capLayout = StaticLayout.Builder.obtain(element.caption, 0, element.caption.length, capPaint, contentWidth)
+                                            .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                                            .build()
+
+                                        activeCanvas?.save()
+                                        activeCanvas?.translate(marginLeft, currentY + figH + 6f)
+                                        capLayout.draw(activeCanvas!!)
+                                        activeCanvas?.restore()
+                                    }
+
+                                    currentY += totalH
+                                    pageHasContent = true
+                                }
+                            }
+                        }
+                    }
+
+                    while (pdfAttachedIdx < imageUris.size) {
+                        val bmp = loadScaledBitmap(context, imageUris[pdfAttachedIdx], (contentWidth * 1.5f).toInt(), 1200)
+                        val num = pdfAttachedIdx + 1
+                        pdfAttachedIdx++
+                        if (bmp != null) {
+                            val aspect = if (bmp.height > 0) bmp.width.toFloat() / bmp.height.toFloat() else 1.6f
+                            val figW = contentWidth.toFloat()
+                            val figH = (figW / aspect).coerceIn(160f, 300f)
+                            val totalH = figH + 36f
+
+                            if (currentY + totalH > usableBottomY && pageHasContent) {
+                                startNewPage()
+                            }
+
+                            if (!dryRun && activeCanvas != null) {
+                                val rect = RectF(marginLeft, currentY, marginLeft + figW, currentY + figH)
+                                activeCanvas?.drawBitmap(bmp, null, rect, null)
+
+                                val caption = "Рисунок $num — Иллюстрационный материал"
+                                val capPaint = TextPaint(bodyPaint).apply {
+                                    textSize = 10f
+                                    typeface = Typeface.create(noteTypeface, Typeface.NORMAL)
+                                }
+                                val capLayout = StaticLayout.Builder.obtain(caption, 0, caption.length, capPaint, contentWidth)
+                                    .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                                    .build()
+
+                                activeCanvas?.save()
+                                activeCanvas?.translate(marginLeft, currentY + figH + 6f)
+                                capLayout.draw(activeCanvas!!)
+                                activeCanvas?.restore()
+                            }
+
+                            currentY += totalH
+                            pageHasContent = true
                         }
                     }
                 } else {

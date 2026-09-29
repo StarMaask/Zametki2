@@ -122,6 +122,18 @@ fun AiAcademicSecretaryDialog(
     }
     var customTitlePageText by remember { mutableStateOf(savedSession?.customTitlePageText) }
 
+    val sessionImageUris = remember(messages, pendingAttachments, initialNote) {
+        val uris = mutableListOf<String>()
+        if (initialNote != null) {
+            uris.addAll(ShareExportUtil.parseImageUris(initialNote.imageUrisJson))
+        }
+        messages.forEach { m ->
+            m.attachments.filter { it.isImage }.forEach { uris.add(it.uri.toString()) }
+        }
+        pendingAttachments.filter { it.isImage }.forEach { uris.add(it.uri.toString()) }
+        uris.distinct()
+    }
+
     LaunchedEffect(messages, selectedRole, requisites, customTitlePageText, currentSessionId) {
         if (messages.isNotEmpty() || customTitlePageText != null) {
             val title = AiChatSessionManager.generateTitle(messages, requisites, selectedRole)
@@ -219,7 +231,13 @@ fun AiAcademicSecretaryDialog(
                     }
                     val cleanContinuation = filteredLines.joinToString("\n").trim()
                     if (cleanContinuation.isNotBlank()) {
-                        sb.append("\n\n--- РАЗРЫВ СТРАНИЦЫ ---\n\n")
+                        val firstLineUpper = cleanContinuation.lines().firstOrNull { it.isNotBlank() }?.trim()?.uppercase()?.removePrefix("#")?.trim() ?: ""
+                        val alreadyBreaks = DocxGenerator.isMajorAcademicSection(firstLineUpper) || firstLineUpper.startsWith("ПРИЛОЖЕНИЕ")
+                        if (!alreadyBreaks) {
+                            sb.append("\n\n--- РАЗРЫВ СТРАНИЦЫ ---\n")
+                        } else {
+                            sb.append("\n\n")
+                        }
                         sb.append(cleanContinuation)
                     }
                 }
@@ -241,7 +259,10 @@ fun AiAcademicSecretaryDialog(
         }
 
         val cleaned = DocxGenerator.cleanAcademicTextAndFormulas(finalText)
-        return TableOfContentsExtractor.synchronizeDocumentToc(cleaned)
+        val normalizedBreaks = cleaned
+            .replace(Regex("""(?m)(^\s*---\s*РАЗРЫВ\s*СТРАНИЦЫ\s*---\s*[\r\n]+){2,}"""), "--- РАЗРЫВ СТРАНИЦЫ ---\n\n")
+            .replace(Regex("""(?m)^\s*---\s*РАЗРЫВ\s*СТРАНИЦЫ\s*---\s*[\r\n]+(?=(?:#+\s*)?(?:ВВЕДЕНИЕ|СОДЕРЖАНИЕ|ОГЛАВЛЕНИЕ|ПРИЛОЖЕНИЕ))""", RegexOption.IGNORE_CASE), "")
+        return TableOfContentsExtractor.synchronizeDocumentToc(normalizedBreaks)
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -1221,7 +1242,8 @@ fun AiAcademicSecretaryDialog(
                                             )
                                         },
                                         unifiedDocumentText = unifiedDoc,
-                                        totalModelMessagesCount = modelCount
+                                        totalModelMessagesCount = modelCount,
+                                        sessionImageUris = sessionImageUris
                                     )
                                 }
                             }
@@ -1634,7 +1656,8 @@ private fun ModelMessageCard(
     onContinueGeneration: (() -> Unit)? = null,
     onDeepenGeneration: (() -> Unit)? = null,
     unifiedDocumentText: String? = null,
-    totalModelMessagesCount: Int = 1
+    totalModelMessagesCount: Int = 1,
+    sessionImageUris: List<String> = emptyList()
 ) {
     var isSavedInApp by remember { mutableStateOf(false) }
 
@@ -1645,7 +1668,7 @@ private fun ModelMessageCard(
     }
 
     val hasMultipleParts = totalModelMessagesCount > 1 && !unifiedDocumentText.isNullOrBlank()
-    val textToExport = if (hasMultipleParts) unifiedDocumentText!! else message.text
+    val textToExport = if (!unifiedDocumentText.isNullOrBlank()) unifiedDocumentText else message.text
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -1797,7 +1820,7 @@ private fun ModelMessageCard(
                         }
 
                         FilledTonalButton(
-                            onClick = { exportToDocx(context, baseTitle, textToExport) },
+                            onClick = { exportToDocx(context, baseTitle, textToExport, sessionImageUris) },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
@@ -1876,6 +1899,7 @@ private fun ModelMessageCard(
                             val newNote = Note(
                                 title = baseTitle,
                                 content = textToExport,
+                                imageUrisJson = org.json.JSONArray(sessionImageUris).toString(),
                                 folder = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Учеба и Наука" else "Документы",
                                 tags = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) listOf("профессор", "наука", "единый документ") else listOf("секретарь", "гост", "единый документ")
                             )
@@ -1969,7 +1993,7 @@ private fun ModelMessageCard(
 
                 // Word .docx
                 FilledTonalButton(
-                    onClick = { exportToDocx(context, baseTitle, textToExport) },
+                    onClick = { exportToDocx(context, baseTitle, textToExport, sessionImageUris) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Description, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
@@ -1979,7 +2003,7 @@ private fun ModelMessageCard(
 
                 // Word .doc (RTF)
                 FilledTonalButton(
-                    onClick = { exportToRtfDoc(context, baseTitle, textToExport) },
+                    onClick = { exportToRtfDoc(context, baseTitle, textToExport, sessionImageUris) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Article, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
@@ -1999,7 +2023,7 @@ private fun ModelMessageCard(
 
                 // PDF (ГОСТ)
                 FilledTonalButton(
-                    onClick = { exportToPdf(context, baseTitle, textToExport) },
+                    onClick = { exportToPdf(context, baseTitle, textToExport, sessionImageUris) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.PictureAsPdf, null, modifier = Modifier.size(16.dp), tint = Color(0xFFC62828))
@@ -2019,7 +2043,7 @@ private fun ModelMessageCard(
 
                 // Direct Save Word to Downloads folder
                 FilledTonalButton(
-                    onClick = { saveDocxDirectlyToDownloads(context, baseTitle, textToExport) },
+                    onClick = { saveDocxDirectlyToDownloads(context, baseTitle, textToExport, sessionImageUris) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp))
@@ -2031,9 +2055,10 @@ private fun ModelMessageCard(
     }
 }
 
-private fun exportToDocx(context: Context, title: String, text: String) {
+private fun exportToDocx(context: Context, title: String, text: String, imageUris: List<String> = emptyList()) {
     try {
-        val file = DocxGenerator.generateDocxFromText(context, title, text)
+        val note = Note(title = title, content = text, imageUrisJson = org.json.JSONArray(imageUris).toString())
+        val file = DocxGenerator.generateDocxFile(context, note, includeSignature = false)
         shareFile(context, file, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Открыть в Word (.docx)")
     } catch (e: Exception) {
         val saved = saveDirectlyToDownloads(context, title, "docx", text)
@@ -2041,9 +2066,10 @@ private fun exportToDocx(context: Context, title: String, text: String) {
     }
 }
 
-private fun exportToRtfDoc(context: Context, title: String, text: String) {
+private fun exportToRtfDoc(context: Context, title: String, text: String, imageUris: List<String> = emptyList()) {
     try {
-        val file = DocxGenerator.generateRtfFromText(context, title, text)
+        val note = Note(title = title, content = text, imageUrisJson = org.json.JSONArray(imageUris).toString())
+        val file = DocxGenerator.generateRtfDocFile(context, note)
         shareFile(context, file, "application/msword", "Открыть в Word (.doc)")
     } catch (e: Exception) {
         val saved = saveDirectlyToDownloads(context, title, "doc", text)
@@ -2081,16 +2107,17 @@ private fun exportToXlsx(context: Context, title: String, text: String) {
     }
 }
 
-private fun exportToPdf(context: Context, title: String, text: String) {
+private fun exportToPdf(context: Context, title: String, text: String, imageUris: List<String> = emptyList()) {
     try {
-        val tempNote = Note(title = title, content = text)
+        val tempNote = Note(title = title, content = text, imageUrisJson = org.json.JSONArray(imageUris).toString())
         val file = ShareExportUtil.generatePdfFile(
             context = context,
             note = tempNote,
             config = com.example.util.PdfExportConfig(
                 includePageNumbers = true,
                 includeCorporateLetterhead = true,
-                includeVerificationQr = true
+                includeVerificationQr = true,
+                includeImages = true
             )
         )
         if (file != null) {
@@ -2103,9 +2130,10 @@ private fun exportToPdf(context: Context, title: String, text: String) {
     }
 }
 
-private fun saveDocxDirectlyToDownloads(context: Context, title: String, text: String) {
+private fun saveDocxDirectlyToDownloads(context: Context, title: String, text: String, imageUris: List<String> = emptyList()) {
     try {
-        val file = DocxGenerator.generateDocxFromText(context, title, text)
+        val note = Note(title = title, content = text, imageUrisJson = org.json.JSONArray(imageUris).toString())
+        val file = DocxGenerator.generateDocxFile(context, note, includeSignature = false)
         val saved = copyFileToDownloads(context, file)
         Toast.makeText(context, "Документ Word сохранен в Загрузки: ${saved?.name ?: file.name}", Toast.LENGTH_LONG).show()
     } catch (e: Exception) {

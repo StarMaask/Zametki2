@@ -90,15 +90,31 @@ object TableOfContentsExtractor {
                 upper == "БИБЛИОГРАФИЧЕСКИЙ СПИСОК" ||
                 upper == "СПИСОК ИСПОЛЬЗОВАННОЙ ЛИТЕРАТУРЫ" ||
                 upper == "ПРИЛОЖЕНИЯ" ||
-                (upper.startsWith("ПРИЛОЖЕНИЕ ") && upper.length < 40) ||
                 upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*"""))
     }
 
     fun isTocEntry(trimmed: String): Boolean {
         val clean = trimmed.removePrefix("#").trim()
+        if (clean.isBlank()) return false
+        val upper = clean.uppercase()
+
+        // Explicitly NEVER a TOC entry if it's a figure, table, appendix, or inline image
+        if (upper.startsWith("РИСУНОК") || upper.startsWith("ТАБЛИЦА") ||
+            upper.startsWith("ПРИЛОЖЕНИЕ") || upper.startsWith("СХЕМА") ||
+            upper.startsWith("ДИАГРАММА") || upper.startsWith("ИЛЛЮСТРАЦИЯ") ||
+            upper.startsWith("ГРАФИК") || upper.startsWith("![") ||
+            upper.startsWith("[РИСУНОК") || upper.startsWith("[ТАБЛИЦА") ||
+            upper.startsWith("[ПРИЛОЖЕНИЕ") || upper.startsWith("[СХЕМА")
+        ) {
+            return false
+        }
+
+        // Standard dot leader pattern (e.g. "Введение ........... 3")
         if (clean.contains("...") || clean.contains("…") || clean.contains(". . .")) return true
-        if (clean.matches(Regex(""".*?[\s\.\—\-\t]+\d{1,4}$"""))) return true
+        // Markdown anchor link pattern (e.g. "[Введение](#_toc123)")
         if (clean.contains("](#") || clean.contains("](#_")) return true
+        // Section title ending with page number (e.g. "1.1. Название раздела  15")
+        if (clean.matches(Regex("""^(\d+(\.\d+)*|[A-ZА-ЯЁ][\.\)]|[A-ZА-ЯЁ]\b).*?[\s\.\—\-\t]+\d{1,4}$"""))) return true
         return false
     }
 
@@ -187,7 +203,10 @@ object TableOfContentsExtractor {
 
             // Skip lines inside TOC block so they are not treated as body headings
             if (inToc) {
-                if (isTocEntry(trimmed) || (trimmed.isNotBlank() && !isMajorAcademicSection(upper) && !trimmed.startsWith("# "))) {
+                if (isTocEntry(trimmed)) {
+                    currentOffset += rawLine.length + 1
+                    continue
+                } else if (trimmed.isBlank()) {
                     currentOffset += rawLine.length + 1
                     continue
                 } else {
@@ -339,7 +358,7 @@ object TableOfContentsExtractor {
                 tocEndIdx = i
                 break
             }
-            if (isMajorAcademicSection(upper) && i > tocStartIdx + 1 && !isTocEntry(trimmed)) {
+            if (trimmed.isNotBlank() && !isTocEntry(trimmed)) {
                 tocEndIdx = i
                 break
             }
