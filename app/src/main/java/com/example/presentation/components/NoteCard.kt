@@ -67,15 +67,15 @@ fun NoteCard(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = if (isSelected) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary) else null,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -91,22 +91,22 @@ fun NoteCard(
                             imageVector = Icons.Filled.Lock,
                             contentDescription = "Защищённая заметка",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Заметка защищена",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = contentColor
                         )
                     }
                 } else if (note.title.isNotBlank()) {
                     Text(
                         text = note.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         fontFamily = noteFontFamily,
                         color = customTextColor,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
@@ -122,20 +122,20 @@ fun NoteCard(
                 } else {
                     IconButton(
                         onClick = onPinClick,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
                             imageVector = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                             contentDescription = if (note.isPinned) "Открепить" else "Закрепить",
                             tint = if (note.isPinned) MaterialTheme.colorScheme.primary else secondaryColor,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
             if (note.isLocked) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "Нажмите для ввода PIN / биометрии",
                     style = MaterialTheme.typography.bodySmall,
@@ -150,17 +150,17 @@ fun NoteCard(
                     }
                 }
                 if (checklist.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        checklist.take(4).forEach { item ->
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        checklist.take(2).forEach { item ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = if (item.isChecked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                                     contentDescription = null,
                                     tint = if (item.isChecked) secondaryColor.copy(alpha = 0.5f) else secondaryColor,
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
                                 Text(
                                     text = item.text,
                                     style = MaterialTheme.typography.bodySmall.copy(
@@ -172,49 +172,49 @@ fun NoteCard(
                                 )
                             }
                         }
-                        if (checklist.size > 4) {
+                        if (checklist.size > 2) {
                             Text(
-                                text = "+ ещё ${checklist.size - 4} п.",
+                                text = "+ ещё ${checklist.size - 2} п.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = secondaryColor
                             )
                         }
                     }
                 } else if (note.content.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     val styledText = remember(note.content, customTextColor) {
                         buildCardAnnotatedContent(note.content, customTextColor)
                     }
                     Text(
                         text = styledText,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         fontFamily = noteFontFamily,
-                        color = customTextColor,
-                        maxLines = 8,
+                        color = customTextColor.copy(alpha = 0.85f),
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             } else if (note.content.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(3.dp))
                 val styledText = remember(note.content, customTextColor) {
                     buildCardAnnotatedContent(note.content, customTextColor)
                 }
                 Text(
                     text = styledText,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     fontFamily = noteFontFamily,
-                    color = customTextColor,
-                    maxLines = 8,
+                    color = customTextColor.copy(alpha = 0.85f),
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
             // Tags / Folders / Indicators
             if (note.tags.isNotEmpty() || !note.folder.isNullOrBlank() || note.reminderTime != null || !note.audioUri.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(5.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (!note.folder.isNullOrBlank()) {
@@ -327,7 +327,7 @@ fun NoteCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -343,13 +343,13 @@ fun NoteCard(
                 if (onShareClick != null && !isSelectionMode) {
                     IconButton(
                         onClick = onShareClick,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Share,
                             contentDescription = "Поделиться заметкой",
                             tint = secondaryColor,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }

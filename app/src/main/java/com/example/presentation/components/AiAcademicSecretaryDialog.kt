@@ -85,10 +85,15 @@ fun AiAcademicSecretaryDialog(
     val listState = rememberLazyListState()
 
     val savedSession = remember {
-        if (initialNote == null || initialNote.content.isBlank()) {
-            AiChatSessionManager.loadSession(context)
-        } else null
+        AiChatSessionManager.loadSession(context)
     }
+
+    var currentSessionId by remember {
+        mutableStateOf(savedSession?.id ?: UUID.randomUUID().toString())
+    }
+
+    var showHistoryBottomSheet by remember { mutableStateOf(false) }
+    var lastFailedRequest by remember { mutableStateOf<Pair<String, List<AiAttachment>>?>(null) }
 
     var selectedRole by remember {
         mutableStateOf(savedSession?.role ?: AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
@@ -117,14 +122,20 @@ fun AiAcademicSecretaryDialog(
     }
     var customTitlePageText by remember { mutableStateOf(savedSession?.customTitlePageText) }
 
-    LaunchedEffect(messages, selectedRole, requisites, customTitlePageText) {
+    LaunchedEffect(messages, selectedRole, requisites, customTitlePageText, currentSessionId) {
         if (messages.isNotEmpty() || customTitlePageText != null) {
+            val title = AiChatSessionManager.generateTitle(messages, requisites, selectedRole)
             AiChatSessionManager.saveSession(
                 context = context,
-                role = selectedRole,
-                messages = messages,
-                requisites = requisites,
-                customTitlePageText = customTitlePageText
+                session = AiChatSessionManager.SavedAiSession(
+                    id = currentSessionId,
+                    title = title,
+                    role = selectedRole,
+                    messages = messages,
+                    requisites = requisites,
+                    customTitlePageText = customTitlePageText,
+                    updatedAt = System.currentTimeMillis()
+                )
             )
         }
     }
@@ -316,13 +327,17 @@ fun AiAcademicSecretaryDialog(
         )
     }
 
-    fun sendMessage(customPrompt: String? = null) {
+    fun sendMessage(
+        customPrompt: String? = null,
+        isRetry: Boolean = false,
+        explicitAttachments: List<AiAttachment>? = null
+    ) {
         val userText = customPrompt ?: promptInput.trim()
         val textToSend = when {
             userText.isNotBlank() -> userText
-            pendingAttachments.isNotEmpty() && selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ->
+            (explicitAttachments?.isNotEmpty() == true || pendingAttachments.isNotEmpty()) && selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ->
                 "Внимательно изучи все прикрепленные материалы, фотографии, формулы или документы. Если это условия задач — подробно реши каждую задачу по всем шагам со всеми формулами, выкладками, пояснениями и проверкой. Если это конспект или учебный материал — составь глубокий академический конспект или реферат."
-            pendingAttachments.isNotEmpty() && selectedRole == AiAcademicAndSecretaryService.AssistantRole.SECRETARY ->
+            (explicitAttachments?.isNotEmpty() == true || pendingAttachments.isNotEmpty()) && selectedRole == AiAcademicAndSecretaryService.AssistantRole.SECRETARY ->
                 "Внимательно изучи прикрепленный документ или скан. Проверь его структуру и оформление на соответствие ГОСТ Р 7.0.97-2016, выяви ошибки или неточности и составь идеальный чистовик документа с правильными реквизитами."
             else -> return
         }
@@ -332,17 +347,24 @@ fun AiAcademicSecretaryDialog(
             return
         }
 
-        val currentAttachments = pendingAttachments.toList()
+        val currentAttachments = explicitAttachments ?: pendingAttachments.toList()
         val userMessage = AcademicChatMessage(
             isUser = true,
             text = textToSend,
             attachments = currentAttachments
         )
 
-        val updatedMessages = messages + userMessage
+        val updatedMessages = if (isRetry && messages.isNotEmpty() && messages.last().isUser) {
+            messages
+        } else {
+            messages + userMessage
+        }
+
         messages = updatedMessages
-        promptInput = ""
-        pendingAttachments = emptyList()
+        if (!isRetry) {
+            promptInput = ""
+            pendingAttachments = emptyList()
+        }
         errorMessage = null
         isLoading = true
 
@@ -380,11 +402,46 @@ fun AiAcademicSecretaryDialog(
                     text = modelText
                 )
                 messages = messages + modelMessage
+                lastFailedRequest = null
                 listState.animateScrollToItem(messages.size - 1)
             } else {
-                errorMessage = result.exceptionOrNull()?.localizedMessage ?: "Ошибка генерации ответа"
+                lastFailedRequest = Pair(textToSend, currentAttachments)
+                errorMessage = result.exceptionOrNull()?.localizedMessage ?: "Ошибка генерации ответа. Проверьте интернет или API-ключ."
             }
         }
+    }
+
+    fun retryLastRequest() {
+        val failed = lastFailedRequest
+        if (failed != null) {
+            sendMessage(customPrompt = failed.first, isRetry = true, explicitAttachments = failed.second)
+        } else {
+            val lastUser = messages.lastOrNull { it.isUser }
+            if (lastUser != null) {
+                sendMessage(customPrompt = lastUser.text, isRetry = true, explicitAttachments = lastUser.attachments)
+            }
+        }
+    }
+
+    fun resumeLastGeneration() {
+        val resumePrompt = "Пожалуйста, продолжи составление документа строго с места, где ты остановился, сохраняя глубокий академический стиль, точность и структуру."
+        sendMessage(customPrompt = resumePrompt)
+    }
+
+    fun editLastRequest() {
+        val failed = lastFailedRequest
+        val textToEdit = failed?.first ?: messages.lastOrNull { it.isUser }?.text ?: ""
+        if (textToEdit.isNotBlank()) {
+            promptInput = textToEdit
+            if (failed?.second != null && failed.second.isNotEmpty()) {
+                pendingAttachments = failed.second
+            }
+        }
+        if (messages.lastOrNull()?.isUser == true) {
+            messages = messages.dropLast(1)
+        }
+        errorMessage = null
+        lastFailedRequest = null
     }
 
     if (showApiKeyDialog) {
@@ -393,6 +450,36 @@ fun AiAcademicSecretaryDialog(
             onKeySaved = { _ ->
                 showApiKeyDialog = false
                 sendMessage()
+            }
+        )
+    }
+
+    if (showHistoryBottomSheet) {
+        AiChatHistoryBottomSheet(
+            currentSessionId = currentSessionId,
+            onDismissRequest = { showHistoryBottomSheet = false },
+            onSelectSession = { session ->
+                currentSessionId = session.id
+                selectedRole = session.role
+                messages = session.messages
+                requisites = session.requisites
+                customTitlePageText = session.customTitlePageText
+                errorMessage = null
+                lastFailedRequest = null
+                pendingAttachments = emptyList()
+                showHistoryBottomSheet = false
+            },
+            onStartNewSession = {
+                currentSessionId = UUID.randomUUID().toString()
+                messages = emptyList()
+                errorMessage = null
+                lastFailedRequest = null
+                pendingAttachments = emptyList()
+                customTitlePageText = null
+                requisites = TitlePageRequisites(topic = initialNote?.title ?: "")
+                AiChatSessionManager.clearActiveSession(context)
+                showHistoryBottomSheet = false
+                Toast.makeText(context, "Начат новый диалог", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -421,8 +508,10 @@ fun AiAcademicSecretaryDialog(
             confirmButton = {
                 Button(
                     onClick = {
+                        currentSessionId = UUID.randomUUID().toString()
                         messages = emptyList()
                         errorMessage = null
+                        lastFailedRequest = null
                         pendingAttachments = emptyList()
                         customTitlePageText = null
                         AiChatSessionManager.clearSession(context)
@@ -530,6 +619,16 @@ fun AiAcademicSecretaryDialog(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { showHistoryBottomSheet = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Forum,
+                                    contentDescription = "История диалогов",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             if (messages.isNotEmpty()) {
                                 IconButton(
                                     onClick = {
@@ -1153,29 +1252,87 @@ fun AiAcademicSecretaryDialog(
                                 }
                             }
 
-                            // Error state
+                            // Error state with retry / resume / edit functionality
                             if (errorMessage != null) {
                                 item {
                                     Surface(
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RoundedCornerShape(14.dp),
                                         color = MaterialTheme.colorScheme.errorContainer,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                Icons.Filled.ErrorOutline,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.error
-                                            )
-                                            Spacer(modifier = Modifier.width(10.dp))
-                                            Text(
-                                                text = errorMessage!!,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onErrorContainer
-                                            )
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.ErrorOutline,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = errorMessage!!,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(
+                                                    onClick = { errorMessage = null },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Close,
+                                                        contentDescription = "Скрыть",
+                                                        tint = MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            // Action Buttons: Retry / Resume / Edit
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                FilledTonalButton(
+                                                    onClick = { retryLastRequest() },
+                                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                                        containerColor = MaterialTheme.colorScheme.error,
+                                                        contentColor = MaterialTheme.colorScheme.onError
+                                                    ),
+                                                    modifier = Modifier.weight(1.2f),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Повторить запрос", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                }
+
+                                                OutlinedButton(
+                                                    onClick = { resumeLastGeneration() },
+                                                    modifier = Modifier.weight(1.1f),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Возобновить", fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                                                }
+
+                                                OutlinedButton(
+                                                    onClick = { editLastRequest() },
+                                                    modifier = Modifier.weight(1.0f),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Изменить", fontSize = 11.5.sp)
+                                                }
+                                            }
                                         }
                                     }
                                 }
