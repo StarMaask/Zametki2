@@ -102,4 +102,57 @@ class TableOfContentsExtractorTest {
         org.junit.Assert.assertFalse("Synced text must not contain bogus page 40", synced.contains("40"))
         org.junit.Assert.assertFalse("Synced text must not contain bogus page 45", synced.contains("45"))
     }
+
+    @Test
+    fun testListsAndLiteratureDoNotTriggerPageBreaks() {
+        val noteContent = """
+            ВВЕДЕНИЕ
+            Задачи исследования:
+            1. Изучить теоретические основы и понятийный аппарат.
+            2. Проанализировать нормативно-правовую базу.
+            3. Разработать практические рекомендации.
+            
+            СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ
+            1. Конституция Российской Федерации.
+            12. Электронный ресурс: «Культурное наследие Новгородской области» [сайт]. URL: http://nasledie.nov.ru (дата обращения: 15.05.2026).
+            13. Статистический ежегодник Новгородской области. — Великий Новгород: Новгородстат, 2025. — 150 с.
+        """.trimIndent()
+
+        val dummyNote = com.example.domain.model.Note(
+            id = 1,
+            title = "Тестовый реферат",
+            content = noteContent
+        )
+
+        val structure = com.example.util.DocxGenerator.parseStructure(dummyNote)
+        val paragraphs = structure.bodyElements.filterIsInstance<com.example.util.DocxGenerator.BodyElement.Paragraph>()
+
+        // Check task list items 1, 2, 3
+        val task1 = paragraphs.firstOrNull { it.text.startsWith("1. Изучить") }
+        val task2 = paragraphs.firstOrNull { it.text.startsWith("2. Проанализировать") }
+        val task3 = paragraphs.firstOrNull { it.text.startsWith("3. Разработать") }
+        assertNotNull(task1)
+        assertNotNull(task2)
+        assertNotNull(task3)
+        org.junit.Assert.assertFalse("Task 1 must not have page break before", task1!!.isPageBreakBefore)
+        org.junit.Assert.assertFalse("Task 2 must not have page break before", task2!!.isPageBreakBefore)
+        org.junit.Assert.assertFalse("Task 3 must not have page break before", task3!!.isPageBreakBefore)
+
+        // Check literature list items 12 and 13
+        val lit12 = paragraphs.firstOrNull { it.text.startsWith("12. Электронный ресурс") }
+        val lit13 = paragraphs.firstOrNull { it.text.startsWith("13. Статистический ежегодник") }
+        assertNotNull(lit12)
+        assertNotNull(lit13)
+        org.junit.Assert.assertFalse("Literature item 12 must NOT have page break before", lit12!!.isPageBreakBefore)
+        org.junit.Assert.assertFalse("Literature item 13 must NOT have page break before", lit13!!.isPageBreakBefore)
+        org.junit.Assert.assertFalse("Literature item 12 must NOT be centered", lit12.isCentered)
+        org.junit.Assert.assertFalse("Literature item 13 must NOT be centered", lit13.isCentered)
+        org.junit.Assert.assertFalse("Literature item 12 must NOT be a heading", lit12.isHeading)
+        org.junit.Assert.assertFalse("Literature item 13 must NOT be a heading", lit13.isHeading)
+
+        // Verify TableOfContentsExtractor does not extract literature entries as headings
+        val tocItems = com.example.util.TableOfContentsExtractor.extract(noteContent)
+        val hasLitInToc = tocItems.any { it.title.contains("Культурное наследие") || it.title.contains("Статистический ежегодник") }
+        org.junit.Assert.assertFalse("Literature items must not be in Table of Contents", hasLitInToc)
+    }
 }

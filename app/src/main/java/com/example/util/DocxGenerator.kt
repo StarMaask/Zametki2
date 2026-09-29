@@ -729,8 +729,8 @@ object DocxGenerator {
                         text = content,
                         isHeading = true,
                         headingLevel = 2,
-                        isCentered = isMajorSection,
-                        isPageBreakBefore = isMajorSection,
+                        isCentered = false,
+                        isPageBreakBefore = false,
                         runs = parseInlineRuns(content, inheritBold = true)
                     )
                 )
@@ -742,7 +742,43 @@ object DocxGenerator {
                         text = content,
                         isHeading = true,
                         headingLevel = 3,
+                        isCentered = false,
+                        isPageBreakBefore = false,
                         runs = parseInlineRuns(content, inheritBold = true)
+                    )
+                )
+            }
+            isNumberedListItem(trimmed) -> {
+                val content = cleanStrayMarkdown(trimmed)
+                bodyElements.add(
+                    BodyElement.Paragraph(
+                        text = content,
+                        isHeading = false,
+                        headingLevel = 0,
+                        isCentered = false,
+                        isPageBreakBefore = false,
+                        runs = parseInlineRuns(content)
+                    )
+                )
+            }
+            isBulletListItem(trimmed) -> {
+                val clean = cleanStrayMarkdown(
+                    trimmed.removePrefix("- ")
+                        .removePrefix("* ")
+                        .removePrefix("•\t")
+                        .removePrefix("• ")
+                        .removePrefix("– ")
+                        .removePrefix("— ")
+                )
+                val content = "•\t$clean"
+                bodyElements.add(
+                    BodyElement.Paragraph(
+                        text = content,
+                        isHeading = false,
+                        headingLevel = 0,
+                        isCentered = false,
+                        isPageBreakBefore = false,
+                        runs = parseInlineRuns(content)
                     )
                 )
             }
@@ -759,21 +795,15 @@ object DocxGenerator {
                     )
                 )
             }
-            trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-                // Bullet item
-                val content = "•\t" + cleanStrayMarkdown(trimmed.substring(2))
-                bodyElements.add(
-                    BodyElement.Paragraph(
-                        text = content,
-                        runs = parseInlineRuns(content)
-                    )
-                )
-            }
             else -> {
                 val content = cleanStrayMarkdown(trimmed)
                 bodyElements.add(
                     BodyElement.Paragraph(
                         text = content,
+                        isHeading = false,
+                        headingLevel = 0,
+                        isCentered = false,
+                        isPageBreakBefore = false,
                         runs = parseInlineRuns(content)
                     )
                 )
@@ -781,11 +811,62 @@ object DocxGenerator {
         }
     }
 
-    fun isMajorAcademicSection(upper: String): Boolean {
+    fun isMajorNumberedChapter(trimmed: String): Boolean {
+        // Matches "1. ТЕОРЕТИЧЕСКАЯ ЧАСТЬ", "2. ПРАКТИЧЕСКИЙ РАЗДЕЛ", "1. ОБЩИЕ ПОЛОЖЕНИЯ"
+        val match = Regex("""^(\d{1,3})\.\s+(.+)""").matchEntire(trimmed) ?: return false
+        val title = match.groupValues[2].trim()
+        if (title.length !in 3..90) return false
+
+        // Must NOT contain URLs, citation marks, pages indicator "с.", or end with a period/semicolon typical of list sentences
+        if (title.contains("URL", ignoreCase = true) || title.contains("http") ||
+            title.contains("[") || title.contains("]") ||
+            (title.contains("—") && title.contains("с.")) ||
+            title.endsWith(";") || title.contains(":")
+        ) {
+            return false
+        }
+
+        // Major chapters are either explicitly keywords (ГЛАВА, РАЗДЕЛ, ЧАСТЬ)
+        // OR written in uppercase title style without typical sentence lowercase text
+        val upperOnly = title.matches(Regex("""^[А-ЯЁA-Z\s\d—\-«»]+$"""))
+        val hasChapterKeyword = title.startsWith("ГЛАВА", ignoreCase = true) ||
+                title.startsWith("РАЗДЕЛ", ignoreCase = true) ||
+                title.contains("ЧАСТЬ", ignoreCase = true)
+
+        return upperOnly || hasChapterKeyword
+    }
+
+    fun isNumberedListItem(trimmed: String): Boolean {
+        if (isMajorNumberedChapter(trimmed)) return false
+        // Matches "1. ", "12. ", "1) ", "12) ", "а) ", "б) ", "a) ", "b) ", "[1] ", "[12] "
+        return trimmed.matches(Regex("""^(\d{1,4}[\.\)]|[a-zA-Zа-яА-ЯёЁ][\.\)]|\[\d{1,4}\])\s+.*"""))
+    }
+
+    fun isBulletListItem(trimmed: String): Boolean {
+        return trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
+                trimmed.startsWith("•\t") || trimmed.startsWith("• ") ||
+                trimmed.startsWith("– ") || trimmed.startsWith("— ")
+    }
+
+    fun isMajorAcademicSection(upperOrRaw: String): Boolean {
+        val trimmed = upperOrRaw.trim().removePrefix("#").trim()
+        val upper = trimmed.uppercase()
+        if (upper.isBlank()) return false
+
         // If it has dot leader or ends with page number, it's a TOC line, never a section header!
         if (upper.contains("...") || upper.contains("…") || upper.matches(Regex(""".*?[\s\.\—\-\t]+\d{1,4}$"""))) {
             return false
         }
+
+        // List items (literature list, task items, questions, etc.) or bullets must NEVER start on a new page!
+        if (isNumberedListItem(trimmed) || isBulletListItem(trimmed)) {
+            return false
+        }
+
+        if (isMajorNumberedChapter(trimmed)) {
+            return true
+        }
+
         return upper == "СОДЕРЖАНИЕ" || upper == "ОГЛАВЛЕНИЕ" ||
                 upper == "ПЕРЕЧЕНЬ СОКРАЩЕНИЙ И УСЛОВНЫХ ОБОЗНАЧЕНИЙ" ||
                 upper == "СПИСОК СОКРАЩЕНИЙ" ||
@@ -795,10 +876,10 @@ object DocxGenerator {
                 upper == "СПИСОК ЛИТЕРАТУРЫ" ||
                 upper == "СПИСОК ИСТОЧНИКОВ" ||
                 upper == "БИБЛИОГРАФИЧЕСКИЙ СПИСОК" ||
+                upper == "СПИСОК ИСПОЛЬЗОВАННОЙ ЛИТЕРАТУРЫ" ||
                 upper == "ПРИЛОЖЕНИЯ" ||
                 (upper.startsWith("ПРИЛОЖЕНИЕ ") && upper.length < 40) ||
-                upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*""")) ||
-                (upper.matches(Regex("""^\d+\.\s+[^\.\d].*""")) && !upper.matches(Regex("""^\d+\.\d+.*""")))
+                upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*"""))
     }
 
     private fun escapeXml(text: String): String {

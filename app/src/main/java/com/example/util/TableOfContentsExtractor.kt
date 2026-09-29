@@ -13,7 +13,6 @@ object TableOfContentsExtractor {
 
     private val TIMESTAMP_REGEX = Regex("""^\[(\d{1,2}:\d{2})\]\s*(.*)""")
     private val HEADING_REGEX = Regex("""^(#{1,4})\s+(.+)""")
-    private val MAJOR_NUMBERED_SECTION_REGEX = Regex("""^(\d+)\.\s+([^\.\d].*)""")
     private val SUB_NUMBERED_SECTION_REGEX = Regex("""^(\d+\.\d+(\.\d+)?)\.?\s+(.+)""")
     private val TOPIC_MARKERS = listOf("тема:", "глава", "раздел", "лекция", "вопрос", "вывод", "д/з", "дз:", "задание:")
 
@@ -24,11 +23,62 @@ object TableOfContentsExtractor {
     const val LINES_PER_PAGE = 28
     const val CHARS_PER_PAGE = 1800
 
-    fun isMajorAcademicSection(upper: String): Boolean {
+    fun isMajorNumberedChapter(trimmed: String): Boolean {
+        // Matches "1. ТЕОРЕТИЧЕСКАЯ ЧАСТЬ", "2. ПРАКТИЧЕСКИЙ РАЗДЕЛ", "1. ОБЩИЕ ПОЛОЖЕНИЯ"
+        val match = Regex("""^(\d{1,3})\.\s+(.+)""").matchEntire(trimmed) ?: return false
+        val title = match.groupValues[2].trim()
+        if (title.length !in 3..90) return false
+
+        // Must NOT contain URLs, citation marks, pages indicator "с.", or end with a period/semicolon typical of list sentences
+        if (title.contains("URL", ignoreCase = true) || title.contains("http") ||
+            title.contains("[") || title.contains("]") ||
+            (title.contains("—") && title.contains("с.")) ||
+            title.endsWith(";") || title.contains(":")
+        ) {
+            return false
+        }
+
+        // Major chapters are either explicitly keywords (ГЛАВА, РАЗДЕЛ, ЧАСТЬ)
+        // OR written in uppercase title style without typical sentence lowercase text
+        val upperOnly = title.matches(Regex("""^[А-ЯЁA-Z\s\d—\-«»]+$"""))
+        val hasChapterKeyword = title.startsWith("ГЛАВА", ignoreCase = true) ||
+                title.startsWith("РАЗДЕЛ", ignoreCase = true) ||
+                title.contains("ЧАСТЬ", ignoreCase = true)
+
+        return upperOnly || hasChapterKeyword
+    }
+
+    fun isNumberedListItem(trimmed: String): Boolean {
+        if (isMajorNumberedChapter(trimmed)) return false
+        // Matches "1. ", "12. ", "1) ", "12) ", "а) ", "б) ", "a) ", "b) ", "[1] ", "[12] "
+        return trimmed.matches(Regex("""^(\d{1,4}[\.\)]|[a-zA-Zа-яА-ЯёЁ][\.\)]|\[\d{1,4}\])\s+.*"""))
+    }
+
+    fun isBulletListItem(trimmed: String): Boolean {
+        return trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
+                trimmed.startsWith("•\t") || trimmed.startsWith("• ") ||
+                trimmed.startsWith("– ") || trimmed.startsWith("— ")
+    }
+
+    fun isMajorAcademicSection(upperOrRaw: String): Boolean {
+        val trimmed = upperOrRaw.trim().removePrefix("#").trim()
+        val upper = trimmed.uppercase()
+        if (upper.isBlank()) return false
+
         // If it has dot leader or ends with page number, it's a TOC line, never a section header!
         if (upper.contains("...") || upper.contains("…") || upper.matches(Regex(""".*?[\s\.\—\-\t]+\d{1,4}$"""))) {
             return false
         }
+
+        // List items (literature list, task items, questions, etc.) or bullets must NEVER start on a new page!
+        if (isNumberedListItem(trimmed) || isBulletListItem(trimmed)) {
+            return false
+        }
+
+        if (isMajorNumberedChapter(trimmed)) {
+            return true
+        }
+
         return upper == "СОДЕРЖАНИЕ" || upper == "ОГЛАВЛЕНИЕ" ||
                 upper == "ПЕРЕЧЕНЬ СОКРАЩЕНИЙ И УСЛОВНЫХ ОБОЗНАЧЕНИЙ" ||
                 upper == "СПИСОК СОКРАЩЕНИЙ" ||
@@ -38,10 +88,10 @@ object TableOfContentsExtractor {
                 upper == "СПИСОК ЛИТЕРАТУРЫ" ||
                 upper == "СПИСОК ИСТОЧНИКОВ" ||
                 upper == "БИБЛИОГРАФИЧЕСКИЙ СПИСОК" ||
+                upper == "СПИСОК ИСПОЛЬЗОВАННОЙ ЛИТЕРАТУРЫ" ||
                 upper == "ПРИЛОЖЕНИЯ" ||
                 (upper.startsWith("ПРИЛОЖЕНИЕ ") && upper.length < 40) ||
-                upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*""")) ||
-                (upper.matches(MAJOR_NUMBERED_SECTION_REGEX) && !upper.matches(Regex("""^\d+\.\d+.*""")))
+                upper.matches(Regex("""^(РАЗДЕЛ|ГЛАВА)\s+\d+.*"""))
     }
 
     fun isTocEntry(trimmed: String): Boolean {
@@ -154,73 +204,78 @@ object TableOfContentsExtractor {
 
             var detectedItem: TocItem? = null
 
-            // 1. Markdown heading (#, ##, ###)
-            val headingMatch = HEADING_REGEX.matchEntire(trimmed)
-            if (headingMatch != null) {
-                val hashes = headingMatch.groupValues[1]
-                val title = headingMatch.groupValues[2].trim()
-                val isMajor = hashes.length == 1 || isMajorAcademicSection(title.uppercase())
-                if (isMajor && pageHasContent) {
-                    advanceToNewPage()
-                }
-                detectedItem = TocItem(
-                    title = title,
-                    level = hashes.length,
-                    characterOffset = currentOffset,
-                    lineNumber = index + 1,
-                    pageNumber = currentPage
-                )
-            } else if (isMajorAcademicSection(upper)) {
-                // Major academic section without markdown hash (e.g. ВВЕДЕНИЕ, ЗАКЛЮЧЕНИЕ, 1. НАИМЕНОВАНИЕ)
-                if (pageHasContent) {
-                    advanceToNewPage()
-                }
-                detectedItem = TocItem(
-                    title = trimmed,
-                    level = 1,
-                    characterOffset = currentOffset,
-                    lineNumber = index + 1,
-                    pageNumber = currentPage
-                )
+            if (isNumberedListItem(trimmed) || isBulletListItem(trimmed)) {
+                // List items (tasks, literature references, enumerated items) are NEVER outline headings
+                // and must NEVER advance to a new page individually!
             } else {
-                // Subsection (e.g. 1.1. Наименование, 2.1.2. Анализ)
-                val subMatch = SUB_NUMBERED_SECTION_REGEX.matchEntire(trimmed)
-                if (subMatch != null) {
-                    val num = subMatch.groupValues[1]
-                    val dotCount = num.count { it == '.' }
-                    val level = if (dotCount >= 2) 3 else 2
+                // 1. Markdown heading (#, ##, ###)
+                val headingMatch = HEADING_REGEX.matchEntire(trimmed)
+                if (headingMatch != null) {
+                    val hashes = headingMatch.groupValues[1]
+                    val title = headingMatch.groupValues[2].trim()
+                    val isMajor = hashes.length == 1 && isMajorAcademicSection(title.uppercase())
+                    if (isMajor && pageHasContent) {
+                        advanceToNewPage()
+                    }
+                    detectedItem = TocItem(
+                        title = title,
+                        level = hashes.length,
+                        characterOffset = currentOffset,
+                        lineNumber = index + 1,
+                        pageNumber = currentPage
+                    )
+                } else if (isMajorAcademicSection(upper)) {
+                    // Major academic section without markdown hash (e.g. ВВЕДЕНИЕ, ЗАКЛЮЧЕНИЕ, ГЛАВА 1)
+                    if (pageHasContent) {
+                        advanceToNewPage()
+                    }
                     detectedItem = TocItem(
                         title = trimmed,
-                        level = level,
+                        level = 1,
                         characterOffset = currentOffset,
                         lineNumber = index + 1,
                         pageNumber = currentPage
                     )
                 } else {
-                    // Audio timestamp marker
-                    val tsMatch = TIMESTAMP_REGEX.matchEntire(trimmed)
-                    if (tsMatch != null) {
-                        val ts = tsMatch.groupValues[1]
-                        val sub = tsMatch.groupValues[2].trim().ifBlank { "Метка времени" }
+                    // Subsection (e.g. 1.1. Наименование, 2.1.2. Анализ)
+                    val subMatch = SUB_NUMBERED_SECTION_REGEX.matchEntire(trimmed)
+                    if (subMatch != null) {
+                        val num = subMatch.groupValues[1]
+                        val dotCount = num.count { it == '.' }
+                        val level = if (dotCount >= 2) 3 else 2
                         detectedItem = TocItem(
-                            title = "⏱ [$ts] $sub",
-                            level = 3,
+                            title = trimmed,
+                            level = level,
                             characterOffset = currentOffset,
                             lineNumber = index + 1,
-                            pageNumber = currentPage,
-                            timestampTag = ts
+                            pageNumber = currentPage
                         )
                     } else {
-                        // Keyword based structural markers
-                        val lower = trimmed.lowercase()
-                        if (TOPIC_MARKERS.any { lower.startsWith(it) } && trimmed.length in 5..80) {
+                        // Audio timestamp marker
+                        val tsMatch = TIMESTAMP_REGEX.matchEntire(trimmed)
+                        if (tsMatch != null) {
+                            val ts = tsMatch.groupValues[1]
+                            val sub = tsMatch.groupValues[2].trim().ifBlank { "Метка времени" }
                             detectedItem = TocItem(
-                                title = trimmed,
-                                level = 2,
+                                title = "⏱ [$ts] $sub",
+                                level = 3,
                                 characterOffset = currentOffset,
                                 lineNumber = index + 1,
-                                pageNumber = currentPage
+                                pageNumber = currentPage,
+                                timestampTag = ts
                             )
+                        } else {
+                            // Keyword based structural markers
+                            val lower = trimmed.lowercase()
+                            if (TOPIC_MARKERS.any { lower.startsWith(it) } && trimmed.length in 5..80) {
+                                detectedItem = TocItem(
+                                    title = trimmed,
+                                    level = 2,
+                                    characterOffset = currentOffset,
+                                    lineNumber = index + 1,
+                                    pageNumber = currentPage
+                                )
+                            }
                         }
                     }
                 }
