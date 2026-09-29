@@ -619,6 +619,20 @@ fun AiAcademicSecretaryDialog(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (messages.any { !it.isUser }) {
+                                IconButton(
+                                    onClick = {
+                                        exportChatHistoryToTxt(context, messages, selectedRole)
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.FileDownload,
+                                        contentDescription = "Скачать весь чат в текстовый файл (.txt)",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                             IconButton(
                                 onClick = { showHistoryBottomSheet = true },
                                 modifier = Modifier.size(36.dp)
@@ -1702,6 +1716,19 @@ private fun ModelMessageCard(
                         }
                     }
 
+                    // Quick Download .txt icon
+                    IconButton(
+                        onClick = { exportToTxt(context, baseTitle, textToExport) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.FileDownload,
+                            contentDescription = "Скачать текстовый файл (.txt)",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
                     // Copy Button
                     IconButton(
                         onClick = {
@@ -1723,6 +1750,63 @@ private fun ModelMessageCard(
                     markdownText = message.text,
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+            // High-visibility download banner for extended documents & text files
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.DownloadDone,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (hasMultipleParts) "Полный единый документ готов (${textToExport.length} симв.):" else "Детальный ответ готов к скачиванию (${textToExport.length} симв.):",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = { exportToTxt(context, baseTitle, textToExport) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        ) {
+                            Icon(Icons.Filled.FileDownload, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("📥 Скачать .txt", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        FilledTonalButton(
+                            onClick = { exportToDocx(context, baseTitle, textToExport) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Filled.Description, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("📄 Word (.docx)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
             }
 
             // Quick Deepen / Expand Button for comprehensive academic rigor
@@ -1862,13 +1946,27 @@ private fun ModelMessageCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // 3. EXPORT BUTTONS ROW: WORD (.DOCX / .DOC), EXCEL, PDF
+            // 3. EXPORT BUTTONS ROW: TEXT (.TXT), WORD (.DOCX / .DOC), EXCEL, PDF
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Text .txt (Текстовый файл)
+                FilledTonalButton(
+                    onClick = { exportToTxt(context, baseTitle, textToExport) },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Filled.TextSnippet, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (hasMultipleParts) "Текст (единый .txt)" else "Текст (.txt)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
                 // Word .docx
                 FilledTonalButton(
                     onClick = { exportToDocx(context, baseTitle, textToExport) },
@@ -1909,14 +2007,24 @@ private fun ModelMessageCard(
                     Text(if (hasMultipleParts) "PDF (единый ГОСТ)" else "PDF (ГОСТ)", fontSize = 12.sp)
                 }
 
-                // Direct Save to Downloads folder
+                // Direct Save .txt to Downloads folder
+                FilledTonalButton(
+                    onClick = { saveTxtDirectlyToDownloads(context, baseTitle, textToExport) },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(".txt в Загрузки", fontSize = 12.sp)
+                }
+
+                // Direct Save Word to Downloads folder
                 FilledTonalButton(
                     onClick = { saveDocxDirectlyToDownloads(context, baseTitle, textToExport) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("В Загрузки", fontSize = 12.sp)
+                    Text("Word в Загрузки", fontSize = 12.sp)
                 }
             }
         }
@@ -2057,5 +2165,76 @@ private fun shareFile(context: Context, file: File, mimeType: String, chooserTit
         // Fallback: save to downloads
         val target = copyFileToDownloads(context, file)
         Toast.makeText(context, "Файл сохранен в Загрузки: ${target?.name ?: file.name}", Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun exportToTxt(context: Context, title: String, text: String) {
+    try {
+        val cleanTitle = title.replace(Regex("[^a-zA-Zа-яА-ЯёЁ0-9_\\-]"), "_").trim('_').take(35).ifBlank { "document" }
+        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val txtFile = File(exportDir, "${cleanTitle}.txt")
+        txtFile.writeText(text, Charsets.UTF_8)
+
+        // Save a copy to public Downloads folder as well
+        val saved = saveDirectlyToDownloads(context, cleanTitle, "txt", text)
+
+        // Open share / view chooser with text/plain
+        shareFile(context, txtFile, "text/plain", "Скачать или открыть текстовый файл (.txt)")
+        if (saved != null) {
+            Toast.makeText(context, "Файл .txt сохранен в Загрузки: ${saved.name}", Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        val saved = saveDirectlyToDownloads(context, title, "txt", text)
+        Toast.makeText(context, "Файл .txt сохранен в Загрузки: ${saved?.name ?: "document.txt"}", Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun saveTxtDirectlyToDownloads(context: Context, title: String, text: String) {
+    try {
+        val saved = saveDirectlyToDownloads(context, title, "txt", text)
+        if (saved != null) {
+            Toast.makeText(context, "Текстовый файл (.txt) сохранен в Загрузки: ${saved.name}", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(context, "Файл .txt готов", Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "Ошибка сохранения .txt: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun exportChatHistoryToTxt(
+    context: Context,
+    messages: List<AcademicChatMessage>,
+    role: AiAcademicAndSecretaryService.AssistantRole
+) {
+    try {
+        val sb = StringBuilder()
+        sb.append("====================================================\n")
+        sb.append("   ИСТОРИЯ ДИАЛОГА С АКАДЕМИЧЕСКИМ ИИ\n")
+        sb.append("   Роль: ${role.title}\n")
+        sb.append("   Специализация: ${role.subtitle}\n")
+        sb.append("   Дата выгрузки: ${java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())}\n")
+        sb.append("====================================================\n\n")
+
+        messages.forEachIndexed { _, msg ->
+            if (msg.isUser) {
+                sb.append("----------------------------------------------------\n")
+                sb.append("[ПОЛЬЗОВАТЕЛЬ]:\n")
+                sb.append(msg.text)
+                sb.append("\n\n")
+            } else {
+                sb.append("----------------------------------------------------\n")
+                sb.append("[ИИ — ${role.title}]:\n")
+                sb.append(msg.text)
+                sb.append("\n\n")
+            }
+        }
+
+        val fullHistory = sb.toString()
+        val title = "Чат_${if (role == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Профессор" else "Секретарь"}"
+        exportToTxt(context, title, fullHistory)
+        Toast.makeText(context, "История диалога экспортирована в текстовый файл (.txt)", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "Ошибка экспорта диалога: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }

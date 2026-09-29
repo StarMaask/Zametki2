@@ -14,8 +14,8 @@ import java.net.URL
 object AiAcademicAndSecretaryService {
 
     private val REASONING_MODELS = listOf(
-        "gemini-3.1-pro-preview",
         "gemini-3.5-flash",
+        "gemini-3.1-pro-preview",
         "gemini-flash-latest",
         "gemini-3.1-flash-lite-preview"
     )
@@ -188,9 +188,10 @@ object AiAcademicAndSecretaryService {
                      * Проверь юридическую чистоту, соответствие ГОСТ, наличие всех обязательных реквизитов.
                      * Исправь ошибки и выдай полный, готовый чистовик документа.
 
-                3. ТРЕБОВАНИЯ К ТЕКСТУ:
-                   - Стиль: строго официальный, дипломатичный, деловой, емкий, исключающий двусмысленность толкования.
-                   - Ответ должен быть полностью готовым к печати развернутым документом без сокращений и плейсхолдеров.
+                3. ТРЕБОВАНИЯ К ТЕКСТУ, ОБЪЕМУ И ПОЛНОТЕ:
+                   - Стиль: строго официальный, дипломатичный, деловой, емкий, юридически безупречный, исключающий двусмысленность толкования.
+                   - Ответ должен быть исчерпывающим, максимально подробным, полностью готовым к печати развернутым документом без сокращений, пропусков и плейсхолдеров.
+                   - Расписывай все разделы, условия, права, обязанности и ответственность сторон, перечни приложений и реквизиты досконально.
                    - Категорически запрещены любые китайские, восточные иероглифы и случайные посторонние символы (такие как 的, 发). Весь текст составляй строго на чистом литературном русском языке.
             """.trimIndent()
         )
@@ -266,16 +267,19 @@ object AiAcademicAndSecretaryService {
         val cleanUserPrompt = userPrompt.trim()
         promptBuilder.append(cleanUserPrompt)
 
-        if (role == AssistantRole.PROFESSOR && (cleanUserPrompt.contains("реферат", ignoreCase = true) ||
+        val isAcademicWork = cleanUserPrompt.contains("реферат", ignoreCase = true) ||
             cleanUserPrompt.contains("курсов", ignoreCase = true) ||
             cleanUserPrompt.contains("доклад", ignoreCase = true) ||
             cleanUserPrompt.contains("диплом", ignoreCase = true) ||
             cleanUserPrompt.contains("отчет", ignoreCase = true) ||
             cleanUserPrompt.contains("стать", ignoreCase = true) ||
-            cleanUserPrompt.contains("напиши", ignoreCase = true) ||
-            cleanUserPrompt.contains("тема", ignoreCase = true) ||
-            history.isEmpty())) {
-            promptBuilder.append("\n\n[МАНДАТ НА АКАДЕМИЧЕСКИЙ ОБЪЕМ И ГЛУБИНУ]: Составь монументальный, максимально развернутый, глубокий и профессиональный документ (15–25 страниц по ГОСТ). Категорически запрещены краткие конспекты и поверхностные сжатые тезисы! Детально распиши каждый подраздел (по 5–8 плотных академических абзацев), включи обзор научных школ, ученых, математические/физические выкладки с формулами, развернутые сравнительные таблицы данных, практические примеры и подробные выводы по каждой задаче.")
+            cleanUserPrompt.contains("диссертаци", ignoreCase = true) ||
+            (role == AssistantRole.PROFESSOR && (cleanUserPrompt.contains("напиши", ignoreCase = true) || cleanUserPrompt.contains("тема", ignoreCase = true) || history.isEmpty()))
+
+        if (isAcademicWork) {
+            promptBuilder.append("\n\n[МАНДАТ НА МАКСИМАЛЬНЫЙ АКАДЕМИЧЕСКИЙ ОБЪЕМ И ГЛУБИНУ]: Составь монументальный, максимально развернутый, глубокий и высокопрофессиональный документ (эквивалент 15–25 страниц по ГОСТ). Категорически запрещены краткие конспекты, сжатые выжимки и поверхностные тезисы! Детально распиши каждый подраздел (по 5–8 плотных академических абзацев), включи подробнейший обзор научных школ, исследователей, математические/физические выкладки с формулами, развернутые сравнительные таблицы данных, практические кейсы, численные расчеты и детальные выводы по всем задачам.")
+        } else {
+            promptBuilder.append("\n\n[ТРЕБОВАНИЕ К МАКСИМАЛЬНОЙ ПОДРОБНОСТИ, ТОЧНОСТИ И ДЕТАЛИЗАЦИИ]: Предоставь максимально подробный, развернутый, точный и обстоятельный ответ. Не сокращай и не урезай информацию. Представь все необходимые данные, факты, классификации, пошаговые алгоритмы, формулы, сравнительные таблицы и подробные пояснения в максимально полном объеме без кратких отписок.")
         }
 
         val latestUserText = promptBuilder.toString()
@@ -390,10 +394,10 @@ object AiAcademicAndSecretaryService {
                     var fullText = parsed.text
                     var currentFinishReason = parsed.finishReason
 
-                    // If document was cut off because of token limit, auto-continue up to 4 times
+                    // If document was cut off because of token limit, auto-continue up to 5 times
                     // to generate the entire, complete academic/official document without abrupt ending!
                     var continuationCount = 0
-                    while ((currentFinishReason == "MAX_TOKENS" || currentFinishReason == "LENGTH") && continuationCount < 4) {
+                    while ((currentFinishReason.equals("MAX_TOKENS", ignoreCase = true) || currentFinishReason.equals("LENGTH", ignoreCase = true)) && continuationCount < 5) {
                         continuationCount++
                         val continuationResult = executeContinuationRequest(
                             model = model,
