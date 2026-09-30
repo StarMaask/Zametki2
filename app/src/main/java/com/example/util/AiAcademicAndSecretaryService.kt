@@ -297,7 +297,11 @@ object AiAcademicAndSecretaryService {
             if (result.isSuccess) {
                 return@withContext result
             }
-            lastError = result.exceptionOrNull()?.localizedMessage ?: lastError
+            val err = result.exceptionOrNull()?.localizedMessage ?: lastError
+            lastError = err
+            if (err.contains("лимит", ignoreCase = true) || err.contains("quota", ignoreCase = true) || err.contains("RESOURCE_EXHAUSTED", ignoreCase = true)) {
+                kotlinx.coroutines.delay(1200)
+            }
         }
 
         Result.failure(Exception(lastError))
@@ -406,6 +410,9 @@ object AiAcademicAndSecretaryService {
                     var continuationCount = 0
                     while ((currentFinishReason.equals("MAX_TOKENS", ignoreCase = true) || currentFinishReason.equals("LENGTH", ignoreCase = true)) && continuationCount < 5) {
                         continuationCount++
+                        try {
+                            Thread.sleep(800)
+                        } catch (_: InterruptedException) {}
                         val continuationResult = executeContinuationRequest(
                             model = model,
                             apiKey = apiKey,
@@ -439,10 +446,21 @@ object AiAcademicAndSecretaryService {
             } else {
                 val errorStream = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
                 val errorMessage = GeminiOcrService.parseErrorMessage(errorStream, responseCode)
-                Result.failure(Exception(errorMessage))
+                val friendlyMessage = if (responseCode == 429 || errorMessage.contains("RESOURCE_EXHAUSTED", ignoreCase = true) || errorMessage.contains("quota", ignoreCase = true)) {
+                    "Превышен лимит запросов к ИИ (квота тарифа). Подождите 1–2 минуты или укажите собственный API-ключ в настройках приложения."
+                } else {
+                    errorMessage
+                }
+                Result.failure(Exception(friendlyMessage))
             }
         } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "Сетевая ошибка при обращении к ИИ."))
+            val msg = e.localizedMessage ?: "Сетевая ошибка при обращении к ИИ."
+            val friendly = if (msg.contains("RESOURCE_EXHAUSTED", ignoreCase = true) || msg.contains("quota", ignoreCase = true) || msg.contains("429")) {
+                "Превышен лимит запросов к ИИ (квота тарифа). Подождите 1–2 минуты или укажите собственный API-ключ в настройках приложения."
+            } else {
+                msg
+            }
+            Result.failure(Exception(friendly))
         } finally {
             connection?.disconnect()
         }

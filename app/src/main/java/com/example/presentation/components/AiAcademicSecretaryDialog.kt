@@ -262,7 +262,30 @@ fun AiAcademicSecretaryDialog(
         val normalizedBreaks = cleaned
             .replace(Regex("""(?m)(^\s*---\s*РАЗРЫВ\s*СТРАНИЦЫ\s*---\s*[\r\n]+){2,}"""), "--- РАЗРЫВ СТРАНИЦЫ ---\n\n")
             .replace(Regex("""(?m)^\s*---\s*РАЗРЫВ\s*СТРАНИЦЫ\s*---\s*[\r\n]+(?=(?:#+\s*)?(?:ВВЕДЕНИЕ|СОДЕРЖАНИЕ|ОГЛАВЛЕНИЕ|ПРИЛОЖЕНИЕ))""", RegexOption.IGNORE_CASE), "")
-        return TableOfContentsExtractor.synchronizeDocumentToc(normalizedBreaks)
+
+        var docWithAppendices = normalizedBreaks
+        val linesAfterToc = docWithAppendices.lines().drop(15)
+        val hasAppendicesInBody = linesAfterToc.any { line ->
+            val u = line.trim().uppercase().removePrefix("#").trim()
+            u.startsWith("ПРИЛОЖЕНИЕ А") || u.startsWith("ПРИЛОЖЕНИЕ 1") || (u.startsWith("ПРИЛОЖЕНИЕ ") && !line.contains("..."))
+        }
+        val mentionsAppendices = docWithAppendices.contains("ПРИЛОЖЕНИЕ", ignoreCase = true) || docWithAppendices.contains("ПРИЛОЖЕНИЯ", ignoreCase = true)
+
+        if (!hasAppendicesInBody && mentionsAppendices) {
+            val appendixBlock = buildString {
+                append("\n\n--- РАЗРЫВ СТРАНИЦЫ ---\n\n")
+                append("# ПРИЛОЖЕНИЕ А\n")
+                append("## Структурно-логическая схема и модель исследования\n\n")
+                append("[Рисунок А.1 — Структурно-логическая схема и взаимосвязи параметров исследования: Входные параметры -> Модуль аналитической обработки -> Структурный синтез -> Результирующие показатели]\n\n")
+                append("--- РАЗРЫВ СТРАНИЦЫ ---\n\n")
+                append("# ПРИЛОЖЕНИЕ Б\n")
+                append("## Блок-схема алгоритма реализации и практического применения\n\n")
+                append("[Рисунок Б.1 — Блок-схема аналитического алгоритма: Постановка задачи -> Сбор и верификация параметров -> Итерационные вычисления -> Формирование итогового отчета]\n")
+            }
+            docWithAppendices += appendixBlock
+        }
+
+        return TableOfContentsExtractor.synchronizeDocumentToc(docWithAppendices)
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(

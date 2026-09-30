@@ -98,23 +98,27 @@ object TableOfContentsExtractor {
         if (clean.isBlank()) return false
         val upper = clean.uppercase()
 
-        // Explicitly NEVER a TOC entry if it's a figure, table, appendix, or inline image
-        if (upper.startsWith("РИСУНОК") || upper.startsWith("ТАБЛИЦА") ||
-            upper.startsWith("ПРИЛОЖЕНИЕ") || upper.startsWith("СХЕМА") ||
-            upper.startsWith("ДИАГРАММА") || upper.startsWith("ИЛЛЮСТРАЦИЯ") ||
-            upper.startsWith("ГРАФИК") || upper.startsWith("![") ||
-            upper.startsWith("[РИСУНОК") || upper.startsWith("[ТАБЛИЦА") ||
-            upper.startsWith("[ПРИЛОЖЕНИЕ") || upper.startsWith("[СХЕМА")
+        // 1. If it has dot leaders or ends with a page number, IT IS A TOC ENTRY!
+        // (Even if it begins with ПРИЛОЖЕНИЕ, РИСУНОК, etc.)
+        val hasDotLeader = clean.contains("...") || clean.contains("…") || clean.contains(". . .") ||
+                clean.contains("· · ·")
+        val endsWithPageNum = clean.matches(Regex("""^.+[\s\.\—\-\t…]{2,}\d{1,4}$""")) ||
+                clean.matches(Regex("""^.*?[\s\.\—\-\t…]+[1-9]\d{0,3}$""")) ||
+                clean.contains("](#") || clean.contains("](#_")
+
+        if (hasDotLeader || endsWithPageNum) {
+            return true
+        }
+
+        // 2. Explicitly NEVER a TOC entry if it's an inline image or bracketed block without page numbers
+        if (upper.startsWith("![") || upper.startsWith("[РИСУНОК") ||
+            upper.startsWith("[ТАБЛИЦА") || upper.startsWith("[СХЕМА") ||
+            upper.startsWith("[ГРАФИ") || upper.startsWith("[ДИАГРАМ") ||
+            upper.startsWith("[ПРИЛОЖЕНИЕ")
         ) {
             return false
         }
 
-        // Standard dot leader pattern (e.g. "Введение ........... 3")
-        if (clean.contains("...") || clean.contains("…") || clean.contains(". . .")) return true
-        // Markdown anchor link pattern (e.g. "[Введение](#_toc123)")
-        if (clean.contains("](#") || clean.contains("](#_")) return true
-        // Section title ending with page number (e.g. "1.1. Название раздела  15")
-        if (clean.matches(Regex("""^(\d+(\.\d+)*|[A-ZА-ЯЁ][\.\)]|[A-ZА-ЯЁ]\b).*?[\s\.\—\-\t]+\d{1,4}$"""))) return true
         return false
     }
 

@@ -243,15 +243,18 @@ object DocxGenerator {
     /**
      * Cleans stray markdown symbols and converts raw LaTeX/math syntax to clean, readable Unicode.
      */
-    fun cleanAcademicTextAndFormulas(text: String): String {
+    fun cleanAcademicTextAndFormulas(text: String, preserveHeadings: Boolean = true): String {
         val sanitized = FormulaSanitizer.cleanFormulasAndText(text)
         var s = sanitized
-            .replace("**", "")
-            .replace("__", "")
             .replace("```", "")
             .replace("`", "")
-            .replace(Regex("""(?m)^#{1,6}\s*"""), "")
-            .replace(Regex("""(?m)\s*#{1,6}$"""), "")
+
+        if (!preserveHeadings) {
+            s = s.replace("**", "")
+                .replace("__", "")
+                .replace(Regex("""(?m)^#{1,6}\s*"""), "")
+                .replace(Regex("""(?m)\s*#{1,6}$"""), "")
+        }
 
         // Strip LaTeX math delimiters: $$, \[, \], \(, \), $
         s = s.replace("$$", "")
@@ -653,27 +656,16 @@ object DocxGenerator {
         var foundTitle: String? = null
         val bodyElements = mutableListOf<BodyElement>()
         val footerLines = mutableListOf<String>()
+        val tocAppendixEntries = mutableListOf<String>()
 
         var phase = 0 // 0 = looking for header/title, 1 = body, 2 = footer
         val currentTableLines = mutableListOf<String>()
 
         fun flushTable() {
             if (currentTableLines.isNotEmpty()) {
-                val parsedRows = mutableListOf<List<String>>()
-                for (tLine in currentTableLines) {
-                    val trimmed = tLine.trim()
-                    if (trimmed.replace(Regex("[-| :]+"), "").isBlank()) continue
-                    val cells = trimmed.split("|")
-                        .map { cleanStrayMarkdown(it) }
-                        .filterIndexed { idx, _ -> idx > 0 && idx < trimmed.split("|").lastIndex }
-                    if (cells.isNotEmpty()) {
-                        parsedRows.add(cells)
-                    }
-                }
-                if (parsedRows.isNotEmpty()) {
-                    val headers = parsedRows.first()
-                    val rows = if (parsedRows.size > 1) parsedRows.subList(1, parsedRows.size) else emptyList()
-                    bodyElements.add(BodyElement.Table(headers, rows))
+                val tbl = parseTableFromLines(currentTableLines)
+                if (tbl != null) {
+                    bodyElements.add(tbl)
                 }
                 currentTableLines.clear()
             }
@@ -729,6 +721,9 @@ object DocxGenerator {
             if (inToc) {
                 if (isTocEntry(trimmed)) {
                     val content = cleanStrayMarkdown(trimmed)
+                    if (content.contains("ПРИЛОЖЕНИЕ", ignoreCase = true) || content.contains("ПРИЛОЖЕНИЯ", ignoreCase = true)) {
+                        tocAppendixEntries.add(content)
+                    }
                     bodyElements.add(
                         BodyElement.Paragraph(
                             text = content,
@@ -803,6 +798,77 @@ object DocxGenerator {
                 note.title.contains("Диплом", ignoreCase = true) ||
                 note.title.contains("Отчет", ignoreCase = true)
 
+        // GUARANTEE: If TOC or text specifies Appendices (ПРИЛОЖЕНИЯ), but body elements don't contain them,
+        // automatically generate and append the missing appendices with graphical figures!
+        val hasExistingAppendices = bodyElements.any {
+            (it is BodyElement.Paragraph && (it.text.startsWith("ПРИЛОЖЕНИЕ", ignoreCase = true) || it.text.contains("ПРИЛОЖЕНИЕ А", ignoreCase = true))) ||
+            (it is BodyElement.SchematicFigure)
+        }
+
+        if (!hasExistingAppendices && (tocAppendixEntries.isNotEmpty() || note.content.contains("ПРИЛОЖЕНИ", ignoreCase = true))) {
+            val appendicesToSynthesize = if (tocAppendixEntries.isNotEmpty()) {
+                tocAppendixEntries.mapNotNull { entry ->
+                    val clean = entry.replace(Regex("""[\.\s\—\-\t…]+$"""), "")
+                        .replace(Regex("""[\.\s\—\-\t…]+\d{1,4}$"""), "")
+                        .trim()
+                    val match = Regex("""ПРИЛОЖЕНИЕ\s*([А-ЯA-Z\d]+)?(?:[\.\:\—\-]\s*(.*))?""", RegexOption.IGNORE_CASE).find(clean)
+                    if (match != null) {
+                        val num = match.groupValues[1].ifBlank { "А" }
+                        val sub = match.groupValues[2].ifBlank {
+                            if (num.contains("Б") || num == "2") "Блок-схема алгоритма реализации и вычислений"
+                            else "Структурно-логическая схема и модель исследования"
+                        }
+                        num to sub
+                    } else null
+                }
+            } else {
+                listOf(
+                    "А" to "Структурно-логическая схема и функциональная архитектура",
+                    "Б" to "Блок-схема алгоритма практической реализации"
+                )
+            }
+
+            for ((letter, subtitle) in appendicesToSynthesize) {
+                if (bodyElements.isEmpty() || bodyElements.last() !is BodyElement.PageBreak) {
+                    bodyElements.add(BodyElement.PageBreak)
+                }
+                val appHeading = "ПРИЛОЖЕНИЕ $letter\n(справочное)"
+                bodyElements.add(
+                    BodyElement.Paragraph(
+                        text = appHeading,
+                        isHeading = true,
+                        headingLevel = 1,
+                        isCentered = true,
+                        isPageBreakBefore = true,
+                        runs = parseInlineRuns(appHeading, inheritBold = true)
+                    )
+                )
+                bodyElements.add(
+                    BodyElement.Paragraph(
+                        text = subtitle,
+                        isHeading = true,
+                        headingLevel = 2,
+                        isCentered = true,
+                        isPageBreakBefore = false,
+                        runs = parseInlineRuns(subtitle, inheritBold = true)
+                    )
+                )
+                val figCaption = "Рисунок $letter.1 — $subtitle"
+                val flowDesc = if (letter.contains("Б") || letter == "2") {
+                    "Постановка задачи -> Сбор и верификация исходных параметров -> Итерационные вычисления -> Формирование итогового отчета"
+                } else {
+                    "Входные данные и нормативная база -> Модуль аналитической обработки -> Структурный синтез -> Результирующие показатели"
+                }
+                bodyElements.add(
+                    BodyElement.SchematicFigure(
+                        caption = figCaption,
+                        figureNumber = "$letter.1",
+                        description = flowDesc
+                    )
+                )
+            }
+        }
+
         return ParsedDocumentStructure(
             isOfficialDocument = isOfficial,
             isAcademicWork = isAcademic,
@@ -845,33 +911,55 @@ object DocxGenerator {
                 trimmed.startsWith("Принял:", ignoreCase = true)
     }
 
+    fun isTableRow(line: String): Boolean {
+        val trimmed = line.trim()
+        if (trimmed.length < 2) return false
+        if (trimmed.startsWith("|")) return true
+        return trimmed.count { it == '|' } >= 2
+    }
+
+    fun isTableSeparator(line: String): Boolean {
+        val clean = line.replace("|", "").replace("-", "").replace(":", "").replace(" ", "").trim()
+        return clean.isEmpty() && line.contains("-")
+    }
+
+    fun parseTableRowCells(line: String): List<String> {
+        val trimmed = line.trim()
+        val stripped = trimmed.removePrefix("|").removeSuffix("|")
+        return stripped.split("|").map { cleanStrayMarkdown(it).trim() }
+    }
+
+    fun parseTableFromLines(lines: List<String>): BodyElement.Table? {
+        val parsedRows = mutableListOf<List<String>>()
+        for (raw in lines) {
+            val t = raw.trim()
+            if (isTableSeparator(t)) continue
+            val cells = parseTableRowCells(t)
+            if (cells.isNotEmpty() && cells.any { it.isNotBlank() }) {
+                parsedRows.add(cells)
+            }
+        }
+        if (parsedRows.isEmpty()) return null
+        val headers = parsedRows.first()
+        val rows = if (parsedRows.size > 1) parsedRows.subList(1, parsedRows.size) else emptyList()
+        return BodyElement.Table(headers, rows)
+    }
+
     private fun processBodyLine(
         rawLine: String,
         tableLines: MutableList<String>,
         bodyElements: MutableList<BodyElement>
     ) {
         val trimmed = rawLine.trim()
-        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+        if (isTableRow(trimmed)) {
             tableLines.add(trimmed)
             return
         }
 
         if (tableLines.isNotEmpty()) {
-            val parsedRows = mutableListOf<List<String>>()
-            for (tLine in tableLines) {
-                val tTrimmed = tLine.trim()
-                if (tTrimmed.replace(Regex("[-| :]+"), "").isBlank()) continue
-                val cells = tTrimmed.split("|")
-                    .map { cleanStrayMarkdown(it) }
-                    .filterIndexed { idx, _ -> idx > 0 && idx < tTrimmed.split("|").lastIndex }
-                if (cells.isNotEmpty()) {
-                    parsedRows.add(cells)
-                }
-            }
-            if (parsedRows.isNotEmpty()) {
-                val headers = parsedRows.first()
-                val rows = if (parsedRows.size > 1) parsedRows.subList(1, parsedRows.size) else emptyList()
-                bodyElements.add(BodyElement.Table(headers, rows))
+            val tbl = parseTableFromLines(tableLines)
+            if (tbl != null) {
+                bodyElements.add(tbl)
             }
             tableLines.clear()
         }
@@ -1758,43 +1846,69 @@ $sigPart  <Override PartName="/word/document.xml" ContentType="application/vnd.o
     }
 
     private fun renderDocxTitlePage(sb: StringBuilder, info: TitlePageInfo) {
-        // University & Ministry Lines (Centered, 12pt, 1.0 spacing)
+        val orgLineCount = info.organizationLines.size
+        val topicLength = info.topic?.length ?: 0
+        val topicLineEstimate = (topicLength / 45) + 1
+        val authorAndSupervisorLines = info.authorLines.size + info.supervisorLines.size
+        val totalDenseUnits = orgLineCount + topicLineEstimate + authorAndSupervisorLines
+
+        // Dynamic compact vertical spacing in DXA (1 pt = 20 dxa) to ensure 100% single page fit
+        val beforeDocType = when {
+            totalDenseUnits > 13 -> "260"
+            totalDenseUnits > 10 -> "380"
+            totalDenseUnits > 7 -> "540"
+            else -> "720"
+        }
+        val beforeAuthor = when {
+            totalDenseUnits > 13 -> "220"
+            totalDenseUnits > 10 -> "320"
+            totalDenseUnits > 7 -> "440"
+            else -> "560"
+        }
+        val beforeCityYear = when {
+            totalDenseUnits > 13 -> "360"
+            totalDenseUnits > 10 -> "520"
+            totalDenseUnits > 7 -> "700"
+            else -> "900"
+        }
+
+        // University & Ministry Lines (Centered, 12pt, compact line spacing)
         for (line in info.organizationLines) {
             sb.append("<w:p>\n")
-            sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"240\" w:lineRule=\"auto\" w:after=\"40\"/></w:pPr>\n")
+            sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"220\" w:lineRule=\"auto\" w:after=\"20\"/></w:pPr>\n")
             sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(line)).append("</w:t></w:r>\n")
             sb.append("</w:p>\n")
         }
 
-        // Vertical spacing before document type (approx 6-7 empty lines)
-        sb.append("<w:p><w:pPr><w:spacing w:before=\"1400\" w:after=\"0\"/></w:pPr></w:p>\n")
+        // Dynamic vertical spacing before document type
+        sb.append("<w:p><w:pPr><w:spacing w:before=\"$beforeDocType\" w:after=\"0\"/></w:pPr></w:p>\n")
 
-        // Document Type: РЕФЕРАТ / КУРСОВАЯ РАБОТА (Centered, Bold 18pt)
+        // Document Type: РЕФЕРАТ / КУРСОВАЯ РАБОТА (Centered, Bold 16pt)
         sb.append("<w:p>\n")
-        sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"360\" w:lineRule=\"auto\" w:after=\"200\"/></w:pPr>\n")
-        sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:b/><w:sz w:val=\"36\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(info.documentType)).append("</w:t></w:r>\n")
+        sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"300\" w:lineRule=\"auto\" w:after=\"120\"/></w:pPr>\n")
+        sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:b/><w:sz w:val=\"32\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(info.documentType)).append("</w:t></w:r>\n")
         sb.append("</w:p>\n")
 
         // Discipline if present
         if (!info.discipline.isNullOrBlank()) {
             sb.append("<w:p>\n")
-            sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"280\" w:lineRule=\"auto\" w:after=\"120\"/></w:pPr>\n")
-            sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"28\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(info.discipline)).append("</w:t></w:r>\n")
+            sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"240\" w:lineRule=\"auto\" w:after=\"80\"/></w:pPr>\n")
+            sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(info.discipline)).append("</w:t></w:r>\n")
             sb.append("</w:p>\n")
         }
 
-        // Topic (Centered, Bold 16pt)
+        // Topic (Centered, Bold 14pt)
         if (!info.topic.isNullOrBlank()) {
             sb.append("<w:p>\n")
-            sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"320\" w:lineRule=\"auto\" w:after=\"300\"/></w:pPr>\n")
-            sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:b/><w:sz w:val=\"30\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(info.topic)).append("</w:t></w:r>\n")
+            sb.append("  <w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"280\" w:lineRule=\"auto\" w:after=\"160\"/></w:pPr>\n")
+            sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:b/><w:sz w:val=\"28\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(info.topic)).append("</w:t></w:r>\n")
             sb.append("</w:p>\n")
         }
 
-        // Vertical spacing before Author & Supervisor block
-        sb.append("<w:p><w:pPr><w:spacing w:before=\"900\" w:after=\"0\"/></w:pPr></w:p>\n")
+        // Dynamic vertical spacing before Author & Supervisor block
+        sb.append("<w:p><w:pPr><w:spacing w:before=\"$beforeAuthor\" w:after=\"0\"/></w:pPr></w:p>\n")
 
-        // Author and Supervisor block in 2-column borderless table (left empty, right text)
+        // Author and Supervisor block in 2-column borderless table
         sb.append("<w:tbl>\n")
         sb.append("  <w:tblPr>\n")
         sb.append("    <w:tblW w:w=\"9355\" w:type=\"dxa\"/>\n")
@@ -1807,12 +1921,12 @@ $sigPart  <Override PartName="/word/document.xml" ContentType="application/vnd.o
         sb.append("    <w:tc><w:tcPr><w:tcW w:w=\"4955\" w:type=\"dxa\"/></w:tcPr>\n")
 
         for (aLine in info.authorLines) {
-            sb.append("      <w:p><w:pPr><w:spacing w:line=\"280\" w:after=\"60\"/><w:jc w:val=\"left\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(aLine)).append("</w:t></w:r></w:p>\n")
+            sb.append("      <w:p><w:pPr><w:spacing w:line=\"240\" w:after=\"30\"/><w:jc w:val=\"left\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(aLine)).append("</w:t></w:r></w:p>\n")
         }
         if (info.supervisorLines.isNotEmpty()) {
-            sb.append("      <w:p><w:pPr><w:spacing w:before=\"140\" w:after=\"0\"/></w:pPr></w:p>\n")
+            sb.append("      <w:p><w:pPr><w:spacing w:before=\"80\" w:after=\"0\"/></w:pPr></w:p>\n")
             for (sLine in info.supervisorLines) {
-                sb.append("      <w:p><w:pPr><w:spacing w:line=\"280\" w:after=\"60\"/><w:jc w:val=\"left\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(sLine)).append("</w:t></w:r></w:p>\n")
+                sb.append("      <w:p><w:pPr><w:spacing w:line=\"240\" w:after=\"30\"/><w:jc w:val=\"left\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(sLine)).append("</w:t></w:r></w:p>\n")
             }
         }
 
@@ -1820,8 +1934,8 @@ $sigPart  <Override PartName="/word/document.xml" ContentType="application/vnd.o
         sb.append("  </w:tr>\n")
         sb.append("</w:tbl>\n")
 
-        // Bottom City and Year (Centered at page bottom)
-        sb.append("<w:p><w:pPr><w:spacing w:before=\"1400\" w:after=\"0\"/><w:jc w:val=\"center\"/></w:pPr>\n")
+        // Dynamic spacing before Bottom City and Year (Centered at page bottom)
+        sb.append("<w:p><w:pPr><w:spacing w:before=\"$beforeCityYear\" w:after=\"0\"/><w:jc w:val=\"center\"/></w:pPr>\n")
         sb.append("  <w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(info.cityAndYear ?: "Москва, 2026")).append("</w:t></w:r>\n")
         sb.append("</w:p>\n")
 
@@ -1867,9 +1981,13 @@ $sigPart  <Override PartName="/word/document.xml" ContentType="application/vnd.o
     }
 
     private fun renderDocxTable(sb: StringBuilder, table: BodyElement.Table) {
+        val totalCols = maxOf(1, maxOf(table.headers.size, table.rows.maxOfOrNull { it.size } ?: 1))
+        val totalWidthDxa = 9355
+        val colWidthDxa = totalWidthDxa / totalCols
+
         sb.append("<w:tbl>\n")
         sb.append("  <w:tblPr>\n")
-        sb.append("    <w:tblW w:w=\"9355\" w:type=\"dxa\"/>\n")
+        sb.append("    <w:tblW w:w=\"$totalWidthDxa\" w:type=\"dxa\"/>\n")
         sb.append("    <w:tblBorders>\n")
         sb.append("      <w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"000000\"/>\n")
         sb.append("      <w:left w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"000000\"/>\n")
@@ -1878,29 +1996,43 @@ $sigPart  <Override PartName="/word/document.xml" ContentType="application/vnd.o
         sb.append("      <w:insideH w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"000000\"/>\n")
         sb.append("      <w:insideV w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"000000\"/>\n")
         sb.append("    </w:tblBorders>\n")
+        sb.append("    <w:tblLayout w:type=\"fixed\"/>\n")
         sb.append("  </w:tblPr>\n")
 
-        // Header row
-        sb.append("  <w:tr>\n")
-        for (header in table.headers) {
-            sb.append("    <w:tc>\n")
-            sb.append("      <w:tcPr><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"F2F2F2\"/></w:tcPr>\n")
-            sb.append("      <w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"240\" w:lineRule=\"auto\" w:after=\"40\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:b/><w:sz w:val=\"22\"/></w:rPr><w:t>").append(escapeXml(header)).append("</w:t></w:r></w:p>\n")
-            sb.append("    </w:tc>\n")
+        // Grid columns definition
+        sb.append("  <w:tblGrid>\n")
+        for (i in 0 until totalCols) {
+            sb.append("    <w:gridCol w:w=\"$colWidthDxa\"/>\n")
         }
-        sb.append("  </w:tr>\n")
+        sb.append("  </w:tblGrid>\n")
+
+        // Header row
+        if (table.headers.isNotEmpty()) {
+            sb.append("  <w:tr>\n")
+            for (i in 0 until totalCols) {
+                val header = if (i < table.headers.size) table.headers[i] else ""
+                sb.append("    <w:tc>\n")
+                sb.append("      <w:tcPr><w:tcW w:w=\"$colWidthDxa\" w:type=\"dxa\"/><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"F2F2F2\"/></w:tcPr>\n")
+                sb.append("      <w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:line=\"240\" w:lineRule=\"auto\" w:after=\"40\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:b/><w:sz w:val=\"22\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(header)).append("</w:t></w:r></w:p>\n")
+                sb.append("    </w:tc>\n")
+            }
+            sb.append("  </w:tr>\n")
+        }
 
         // Data rows
         for (row in table.rows) {
             sb.append("  <w:tr>\n")
-            for (cell in row) {
+            for (i in 0 until totalCols) {
+                val cell = if (i < row.size) row[i] else ""
                 sb.append("    <w:tc>\n")
-                sb.append("      <w:p><w:pPr><w:spacing w:line=\"240\" w:lineRule=\"auto\" w:after=\"40\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"22\"/></w:rPr><w:t>").append(escapeXml(cell)).append("</w:t></w:r></w:p>\n")
+                sb.append("      <w:tcPr><w:tcW w:w=\"$colWidthDxa\" w:type=\"dxa\"/></w:tcPr>\n")
+                sb.append("      <w:p><w:pPr><w:spacing w:line=\"240\" w:lineRule=\"auto\" w:after=\"40\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"22\"/></w:rPr><w:t xml:space=\"preserve\">").append(escapeXml(cell)).append("</w:t></w:r></w:p>\n")
                 sb.append("    </w:tc>\n")
             }
             sb.append("  </w:tr>\n")
         }
         sb.append("</w:tbl>\n")
+        sb.append("<w:p><w:pPr><w:spacing w:line=\"240\" w:lineRule=\"auto\" w:after=\"120\"/></w:pPr></w:p>\n")
     }
 
     private fun renderDocxSignatureBlock(sb: StringBuilder, structure: ParsedDocumentStructure, hasSignature: Boolean) {

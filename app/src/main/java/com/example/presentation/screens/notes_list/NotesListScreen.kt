@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.Note
 import com.example.domain.model.NoteTemplate
@@ -453,13 +454,13 @@ fun NotesListScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                SmallFloatingActionButton(
+                ExtendedFloatingActionButton(
                     onClick = { showAiAcademicSecretaryDialog = true },
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                ) {
-                    Icon(imageVector = Icons.Filled.School, contentDescription = "ИИ Профессор и Секретарь")
-                }
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                    text = { Text("ИИ-Секретарь", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                )
 
                 SmallFloatingActionButton(
                     onClick = { showTemplateDialog = true },

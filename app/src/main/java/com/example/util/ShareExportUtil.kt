@@ -808,7 +808,11 @@ object ShareExportUtil {
                         }
                         currentY += lLayout.height + 4f
                     }
-                    currentY += 80f
+                    val totalInfoLines = info.organizationLines.size + (info.authorLines.size + info.supervisorLines.size)
+                    val isLongContent = totalInfoLines > 7 || (info.topic?.length ?: 0) > 80
+                    val gap1 = if (isLongContent) 30f else 50f
+                    val gap2 = if (isLongContent) 24f else 40f
+                    currentY += gap1
 
                     val docTypePaint = TextPaint().apply {
                         color = theme.inkColor
@@ -856,7 +860,7 @@ object ShareExportUtil {
                         currentY += topicLayout.height + 16f
                     }
 
-                    currentY += 60f
+                    currentY += gap2
 
                     val authorLeft = marginLeft + contentWidth * 0.45f
                     val authorWidth = (contentWidth * 0.55f).toInt()
