@@ -96,7 +96,7 @@ fun AiAcademicSecretaryDialog(
     var lastFailedRequest by remember { mutableStateOf<Pair<String, List<AiAttachment>>?>(null) }
 
     var selectedRole by remember {
-        mutableStateOf(savedSession?.role ?: AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
+        mutableStateOf(savedSession?.role ?: AiAcademicAndSecretaryService.AssistantRole.GENERAL)
     }
     var promptInput by remember { mutableStateOf("") }
     var includeNoteContext by remember { mutableStateOf(initialNote != null && initialNote.content.isNotBlank()) }
@@ -332,6 +332,16 @@ fun AiAcademicSecretaryDialog(
         }
     }
 
+    val generalChips = listOf(
+        "💡 Объясни простыми словами сложные понятия (с жизненными примерами)",
+        "💻 Напиши и подробно прокомментируй программный код / алгоритм",
+        "📝 Составь пошаговый план действий, расписание или чек-лист",
+        "🌍 Переведи текст на другой язык с сохранением смысла и стиля",
+        "🧠 Предложи 5 креативных идей и нестандартных решений для проекта",
+        "🔍 Проанализируй текст и выдели главные тезисы и выводы",
+        "❓ Ответь на вопрос с фактами, историей и практическими советами"
+    )
+
     val professorChips = listOf(
         "🎓 Фундаментальный реферат по ГОСТ (15–20 стр., детальная теория, формулы, таблицы, источники ВАК)",
         "📘 Полная курсовая работа (с методикой, расчетами, кейсами и таблицами)",
@@ -350,8 +360,29 @@ fun AiAcademicSecretaryDialog(
         "🖋️ Приказ руководителя с преамбулой и персональной ответственностью"
     )
 
-    val refinementChips = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) {
-        listOf(
+    val editorChips = listOf(
+        "✍️ Исправь все орфографические, пунктуационные и речевые ошибки",
+        "✂️ Сократи текст, убери воду и канцеляризмы, сохранив смысл",
+        "🎯 Сделай краткое структурированное саммари (выжимку) по пунктам",
+        "🚀 Перепиши в живом, вовлекающем стиле для статьи или блога",
+        "👔 Переведи текст в строгий, убедительный деловой стиль"
+    )
+
+    val refinementChips = when (selectedRole) {
+        AiAcademicAndSecretaryService.AssistantRole.GENERAL -> listOf(
+            "💡 Объясни еще проще и нагляднее",
+            "🔍 Распиши подробнее с деталями и примерами",
+            "💻 Покажи практический пример реализации в коде",
+            "📋 Оформи ответ в виде наглядной таблицы",
+            "❓ А какие есть альтернативные мнения и подходы?"
+        )
+        AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> listOf(
+            "✂️ Сделай еще лаконичнее и короче",
+            "✍️ Предложи 3 альтернативных варианта заголовка",
+            "🎯 Выдели ключевые мысли жирным шрифтом",
+            "👔 Переведи в более деловой тон"
+        )
+        AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> listOf(
             "📚 Сделать работу в 2-3 раза объемнее и детальнее (углубить все разделы по ГОСТ)",
             "⏩ Продолжить составление / Дописать следующие разделы работы",
             "📖 Расширить теоретический раздел (добавить научные школы, концепции ученых)",
@@ -360,8 +391,7 @@ fun AiAcademicSecretaryDialog(
             "⚙️ Углубить практическую часть (добавить численные расчеты и практические кейсы)",
             "🎓 Расширить список источников до 25 научных публикаций ВАК по ГОСТ"
         )
-    } else {
-        listOf(
+        AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> listOf(
             "⏩ Продолжить с места обрыва / Дописать следующие разделы",
             "Оформи строго по ГОСТ Р 7.0.97-2016 со всеми реквизитами",
             "Добавь спецификацию в виде расчетной таблицы",
@@ -624,22 +654,39 @@ fun AiAcademicSecretaryDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
+                            val (headerRoleIcon, headerRoleColor, headerRoleBg) = when (selectedRole) {
+                                AiAcademicAndSecretaryService.AssistantRole.GENERAL -> Triple(
+                                    Icons.Filled.AutoAwesome,
+                                    MaterialTheme.colorScheme.tertiary,
+                                    MaterialTheme.colorScheme.tertiaryContainer
+                                )
+                                AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> Triple(
+                                    Icons.Filled.School,
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.primaryContainer
+                                )
+                                AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> Triple(
+                                    Icons.Filled.Work,
+                                    MaterialTheme.colorScheme.secondary,
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                )
+                                AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> Triple(
+                                    Icons.Filled.EditNote,
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.primaryContainer
+                                )
+                            }
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
                                     .clip(CircleShape)
-                                    .background(
-                                        if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                            MaterialTheme.colorScheme.primaryContainer
-                                        else
-                                            MaterialTheme.colorScheme.secondaryContainer
-                                    ),
+                                    .background(headerRoleBg),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Work,
+                                    imageVector = headerRoleIcon,
                                     contentDescription = null,
-                                    tint = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                    tint = headerRoleColor,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -705,23 +752,39 @@ fun AiAcademicSecretaryDialog(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Role selector tabs
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        SegmentedButton(
-                            selected = selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR,
-                            onClick = { selectedRole = AiAcademicAndSecretaryService.AssistantRole.PROFESSOR },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                            icon = { Icon(Icons.Filled.School, null, modifier = Modifier.size(15.dp)) }
-                        ) {
-                            Text("🎓 Профессор наук", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        SegmentedButton(
-                            selected = selectedRole == AiAcademicAndSecretaryService.AssistantRole.SECRETARY,
-                            onClick = { selectedRole = AiAcademicAndSecretaryService.AssistantRole.SECRETARY },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                            icon = { Icon(Icons.Filled.Work, null, modifier = Modifier.size(15.dp)) }
-                        ) {
-                            Text("💼 Умный секретарь", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                    // Role selector chips (4 modes)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (role in AiAcademicAndSecretaryService.AssistantRole.values()) {
+                            val isSelected = selectedRole == role
+                            val (chipIcon, chipLabel) = when (role) {
+                                AiAcademicAndSecretaryService.AssistantRole.GENERAL -> Icons.Filled.AutoAwesome to "🌐 Общий AI"
+                                AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> Icons.Filled.School to "🎓 Профессор"
+                                AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> Icons.Filled.Work to "💼 Секретарь"
+                                AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> Icons.Filled.EditNote to "✍️ Редактор"
+                            }
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedRole = role },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = chipIcon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = chipLabel,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            )
                         }
                     }
 
@@ -742,6 +805,16 @@ fun AiAcademicSecretaryDialog(
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             // Info card
+                            val (infoTitle, infoDesc) = when (selectedRole) {
+                                AiAcademicAndSecretaryService.AssistantRole.GENERAL ->
+                                    "Универсальный помощник" to "Задайте любой интересующий вас вопрос, попросите написать код, составить план, перевести текст или дать совет."
+                                AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ->
+                                    "Постановка научной задачи Профессору" to "Решит сложную задачу по шагам с формулами, напишет конспект или реферат. Прикрепите фото или скан задания."
+                                AiAcademicAndSecretaryService.AssistantRole.SECRETARY ->
+                                    "Постановка задачи Секретарю по ГОСТ" to "Составит официальное заявление, служебную записку, договор или акт с реквизитами по ГОСТ Р 7.0.97-2016."
+                                AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR ->
+                                    "Редактор и копирайтер" to "Исправит ошибки, уберет воду, перепишет текст в нужном стиле и сделает структурированное саммари."
+                            }
                             Card(
                                 shape = RoundedCornerShape(16.dp),
                                 colors = CardDefaults.cardColors(
@@ -759,20 +832,14 @@ fun AiAcademicSecretaryDialog(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                                "Постановка научной задачи Профессору"
-                                            else
-                                                "Постановка задачи Секретарю по ГОСТ",
+                                            text = infoTitle,
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                            "Решит сложную задачу по шагам с формулами, напишет конспект или реферат. Прикрепите фото или скан задания."
-                                        else
-                                            "Составит официальное заявление, служебную записку, договор или акт с реквизитами по ГОСТ Р 7.0.97-2016.",
+                                        text = infoDesc,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -838,10 +905,18 @@ fun AiAcademicSecretaryDialog(
                                         .fillMaxWidth(0.92f)
                                         .heightIn(max = 350.dp)
                                 ) {
-                                    val currentChips = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                        professorChips
-                                    else
-                                        secretaryChips
+                                    val currentChips = when (selectedRole) {
+                                        AiAcademicAndSecretaryService.AssistantRole.GENERAL -> generalChips
+                                        AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> professorChips
+                                        AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> secretaryChips
+                                        AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> editorChips
+                                    }
+                                    val chipIcon = when (selectedRole) {
+                                        AiAcademicAndSecretaryService.AssistantRole.GENERAL -> Icons.Filled.AutoAwesome
+                                        AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> Icons.Filled.School
+                                        AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> Icons.Filled.Description
+                                        AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> Icons.Filled.EditNote
+                                    }
 
                                     currentChips.forEach { chipText ->
                                         DropdownMenuItem(
@@ -853,7 +928,7 @@ fun AiAcademicSecretaryDialog(
                                             },
                                             leadingIcon = {
                                                 Icon(
-                                                    if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Description,
+                                                    chipIcon,
                                                     contentDescription = null,
                                                     tint = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(18.dp)
@@ -868,61 +943,108 @@ fun AiAcademicSecretaryDialog(
                                 }
                             }
 
-                            // REQUISITES OF TITLE PAGE (РЕКВИЗИТЫ ТИТУЛЬНОГО ЛИСТА ГОСТ)
-                            OutlinedCard(
-                                onClick = { showTitlePageDialog = true },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.outlinedCardColors(
-                                    containerColor = if (customTitlePageText != null)
-                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                                    else
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
+                            // Horizontal Quick Prompts Carousel
+                            val currentRoleChips = when (selectedRole) {
+                                AiAcademicAndSecretaryService.AssistantRole.GENERAL -> generalChips
+                                AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> professorChips
+                                AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> secretaryChips
+                                AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> editorChips
+                            }
+                            val rolePromptIcon = when (selectedRole) {
+                                AiAcademicAndSecretaryService.AssistantRole.GENERAL -> Icons.Filled.AutoAwesome
+                                AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> Icons.Filled.School
+                                AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> Icons.Filled.Description
+                                AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> Icons.Filled.EditNote
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                currentRoleChips.take(5).forEach { chipText ->
+                                    SuggestionChip(
+                                        onClick = { promptInput = chipText },
+                                        icon = {
+                                            Icon(
+                                                imageVector = rolePromptIcon,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        label = {
+                                            Text(
+                                                text = chipText.take(38) + if (chipText.length > 38) "…" else "",
+                                                fontSize = 12.sp,
+                                                maxLines = 1
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
+                            }
+
+                            // REQUISITES OF TITLE PAGE (РЕКВИЗИТЫ ТИТУЛЬНОГО ЛИСТА ГОСТ)
+                            if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ||
+                                selectedRole == AiAcademicAndSecretaryService.AssistantRole.SECRETARY ||
+                                customTitlePageText != null
+                            ) {
+                                OutlinedCard(
+                                    onClick = { showTitlePageDialog = true },
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.outlinedCardColors(
+                                        containerColor = if (customTitlePageText != null)
+                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                        else
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Icon(
-                                            Icons.Filled.Badge,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
-                                            Text(
-                                                text = if (customTitlePageText != null) "✓ Реквизиты титульного листа заданы" else "Реквизиты титульного листа (ГОСТ)",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.Badge,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
                                             )
-                                            Text(
-                                                text = if (customTitlePageText != null)
-                                                    "${requisites.docType}: «${requisites.topic.ifBlank { "Тема работы" }}»"
-                                                else
-                                                    "ВУЗ, кафедра, тема, автор, руководитель, город и год...",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = if (customTitlePageText != null) "✓ Реквизиты титульного листа заданы" else "Реквизиты титульного листа (ГОСТ)",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = if (customTitlePageText != null)
+                                                        "${requisites.docType}: «${requisites.topic.ifBlank { "Тема работы" }}»"
+                                                    else
+                                                        "ВУЗ, кафедра, тема, автор, руководитель, город и год...",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
+                                        Icon(
+                                            if (customTitlePageText != null) Icons.Filled.Check else Icons.Filled.Edit,
+                                            contentDescription = "Настроить реквизиты",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
-                                    Icon(
-                                        if (customTitlePageText != null) Icons.Filled.Check else Icons.Filled.Edit,
-                                        contentDescription = "Настроить реквизиты",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
                                 }
                             }
 
@@ -934,15 +1056,23 @@ fun AiAcademicSecretaryDialog(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
 
+                            val placeholderText = when (selectedRole) {
+                                AiAcademicAndSecretaryService.AssistantRole.GENERAL ->
+                                    "Задайте любой вопрос, опишите задачу для кода, тему для анализа, текст для перевода..."
+                                AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ->
+                                    "Опишите задачу (математика, физика, химия, алгоритмы), тему конспекта или реферата. Прикрепите фото или скан..."
+                                AiAcademicAndSecretaryService.AssistantRole.SECRETARY ->
+                                    "Опишите вид документа: заявление, служебная записка, акт приёма-передачи, договор. Укажите реквизиты или прикрепите скан..."
+                                AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR ->
+                                    "Вставьте текст для проверки, редактирования, сокращения или изменения стиля..."
+                            }
+
                             OutlinedTextField(
                                 value = promptInput,
                                 onValueChange = { promptInput = it },
                                 placeholder = {
                                     Text(
-                                        text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                            "Опишите задачу (математика, физика, химия, алгоритмы), тему конспекта или реферата. Прикрепите фото или скан..."
-                                        else
-                                            "Опишите вид документа: заявление, служебная записка, акт приёма-передачи, договор. Укажите реквизиты или прикрепите скан...",
+                                        text = placeholderText,
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                 },
@@ -1116,23 +1246,32 @@ fun AiAcademicSecretaryDialog(
                                     .fillMaxWidth()
                                     .height(48.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.secondary
+                                    containerColor = when (selectedRole) {
+                                        AiAcademicAndSecretaryService.AssistantRole.GENERAL -> MaterialTheme.colorScheme.tertiary
+                                        AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> MaterialTheme.colorScheme.primary
+                                        AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> MaterialTheme.colorScheme.secondary
+                                        AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> MaterialTheme.colorScheme.primary
+                                    }
                                 )
                             ) {
+                                val (btnIcon, btnText) = when (selectedRole) {
+                                    AiAcademicAndSecretaryService.AssistantRole.GENERAL ->
+                                        Icons.Filled.AutoAwesome to "Спросить Общего Помощника"
+                                    AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ->
+                                        Icons.Filled.School to "Запустить решение задачи / реферат"
+                                    AiAcademicAndSecretaryService.AssistantRole.SECRETARY ->
+                                        Icons.Filled.Description to "Сформировать документ по ГОСТ"
+                                    AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR ->
+                                        Icons.Filled.EditNote to "Улучшить и отредактировать текст"
+                                }
                                 Icon(
-                                    if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Send,
+                                    imageVector = btnIcon,
                                     contentDescription = null,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                        "Запустить подробное решение задачи"
-                                    else
-                                        "Сформировать документ по ГОСТ",
+                                    text = btnText,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp
                                 )
@@ -1291,17 +1430,24 @@ fun AiAcademicSecretaryDialog(
                                                 color = MaterialTheme.colorScheme.primary
                                             )
                                             Spacer(modifier = Modifier.width(14.dp))
+                                            val (roleLoadingTitle, roleLoadingSubtitle) = when (selectedRole) {
+                                                AiAcademicAndSecretaryService.AssistantRole.GENERAL ->
+                                                    "ИИ-Помощник думает над ответом..." to "Анализ задачи, формулирование выводов и решений"
+                                                AiAcademicAndSecretaryService.AssistantRole.PROFESSOR ->
+                                                    "Профессор анализирует задачу и рассчитывает выкладки..." to "Формирование развернутого ответа со всеми деталями"
+                                                AiAcademicAndSecretaryService.AssistantRole.SECRETARY ->
+                                                    "Секретарь формулирует и оформляет документ по ГОСТ..." to "Составление реквизитов и официального текста"
+                                                AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR ->
+                                                    "Редактор вычитывает и совершенствует текст..." to "Стилистическая правка, саммари и структурирование"
+                                            }
                                             Column {
                                                 Text(
-                                                    text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                                                        "Профессор анализирует задачу и рассчитывает выкладки..."
-                                                    else
-                                                        "Секретарь формулирует и оформляет документ по ГОСТ...",
+                                                    text = roleLoadingTitle,
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
                                                 Text(
-                                                    text = "Формирование развернутого ответа со всеми деталями",
+                                                    text = roleLoadingSubtitle,
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -1556,6 +1702,23 @@ fun AiAcademicSecretaryDialog(
                                         }
                                     }
 
+                                    // Quick 1-tap Photo Picker button
+                                    IconButton(
+                                        onClick = {
+                                            photoPickerLauncher.launch(
+                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                            )
+                                        },
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.AddPhotoAlternate,
+                                            contentDescription = "Прикрепить фото или скан",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
                                     // Text input field
                                     OutlinedTextField(
                                         value = promptInput,
@@ -1707,25 +1870,45 @@ private fun ModelMessageCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val (cardRoleIcon, cardRoleText, cardRoleBg) = when (selectedRole) {
+                    AiAcademicAndSecretaryService.AssistantRole.GENERAL -> Triple(
+                        Icons.Filled.AutoAwesome,
+                        "Ответ ИИ-Помощника",
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                    AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> Triple(
+                        Icons.Filled.School,
+                        "Ответ Профессора",
+                        MaterialTheme.colorScheme.primaryContainer
+                    )
+                    AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> Triple(
+                        Icons.Filled.Work,
+                        "Документ Секретаря",
+                        MaterialTheme.colorScheme.secondaryContainer
+                    )
+                    AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> Triple(
+                        Icons.Filled.EditNote,
+                        "Редактор заметок",
+                        MaterialTheme.colorScheme.primaryContainer
+                    )
+                }
+
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else
-                        MaterialTheme.colorScheme.secondaryContainer
+                    color = cardRoleBg
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) Icons.Filled.School else Icons.Filled.Work,
+                            imageVector = cardRoleIcon,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Ответ Профессора" else "Документ Секретаря",
+                            text = cardRoleText,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -1741,8 +1924,18 @@ private fun ModelMessageCard(
                                     val newNote = Note(
                                         title = baseTitle,
                                         content = message.text,
-                                        folder = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Учеба и Наука" else "Документы",
-                                        tags = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) listOf("профессор", "наука") else listOf("секретарь", "гост")
+                                        folder = when (selectedRole) {
+                                            AiAcademicAndSecretaryService.AssistantRole.GENERAL -> "ИИ-Ответы"
+                                            AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> "Учеба и Наука"
+                                            AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> "Документы"
+                                            AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> "Черновики и Статьи"
+                                        },
+                                        tags = when (selectedRole) {
+                                            AiAcademicAndSecretaryService.AssistantRole.GENERAL -> listOf("ии", "помощник")
+                                            AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> listOf("профессор", "наука")
+                                            AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> listOf("секретарь", "гост")
+                                            AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> listOf("редактор", "текст")
+                                        }
                                     )
                                     repository.insertNote(newNote)
                                     isSavedInApp = true
@@ -1923,8 +2116,18 @@ private fun ModelMessageCard(
                                 title = baseTitle,
                                 content = textToExport,
                                 imageUrisJson = org.json.JSONArray(sessionImageUris).toString(),
-                                folder = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Учеба и Наука" else "Документы",
-                                tags = if (selectedRole == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) listOf("профессор", "наука", "единый документ") else listOf("секретарь", "гост", "единый документ")
+                                folder = when (selectedRole) {
+                                    AiAcademicAndSecretaryService.AssistantRole.GENERAL -> "ИИ-Ответы"
+                                    AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> "Учеба и Наука"
+                                    AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> "Документы"
+                                    AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> "Черновики и Статьи"
+                                },
+                                tags = when (selectedRole) {
+                                    AiAcademicAndSecretaryService.AssistantRole.GENERAL -> listOf("ии", "помощник", "единый документ")
+                                    AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> listOf("профессор", "наука", "единый документ")
+                                    AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> listOf("секретарь", "гост", "единый документ")
+                                    AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> listOf("редактор", "текст", "единый документ")
+                                }
                             )
                             repository.insertNote(newNote)
                             isSavedInApp = true
@@ -2282,7 +2485,13 @@ private fun exportChatHistoryToTxt(
         }
 
         val fullHistory = sb.toString()
-        val title = "Чат_${if (role == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Профессор" else "Секретарь"}"
+        val roleSuffix = when (role) {
+            AiAcademicAndSecretaryService.AssistantRole.GENERAL -> "Помощник"
+            AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> "Профессор"
+            AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> "Секретарь"
+            AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> "Редактор"
+        }
+        val title = "Чат_${roleSuffix}"
         exportToTxt(context, title, fullHistory)
         Toast.makeText(context, "История диалога экспортирована в текстовый файл (.txt)", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {

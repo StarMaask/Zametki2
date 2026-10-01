@@ -33,6 +33,7 @@ import com.example.presentation.components.HelpDialog
 import com.example.presentation.components.NoteCard
 import com.example.presentation.components.NoteTemplateDialog
 import com.example.presentation.components.AiAcademicSecretaryDialog
+import com.example.presentation.components.AiChatHistoryBottomSheet
 import com.example.domain.model.PageFormat
 import com.example.presentation.components.FlashcardStudyDialog
 import com.example.presentation.components.MindMapDialog
@@ -74,6 +75,7 @@ fun NotesListScreen(
     var showStudyStatisticsDialog by remember { mutableStateOf(false) }
     var showFocusTimerDialog by remember { mutableStateOf(false) }
     var showAiAcademicSecretaryDialog by remember { mutableStateOf(false) }
+    var showAiChatHistoryDialog by remember { mutableStateOf(false) }
     var noteToShare by remember { mutableStateOf<Note?>(null) }
     val deletedNotes by viewModel.repository.getDeletedNotes().collectAsState(initial = emptyList())
 
@@ -226,6 +228,12 @@ fun NotesListScreen(
                     },
                     actions = {
                         TooltipIconButton(
+                            onClick = { showAiAcademicSecretaryDialog = true },
+                            icon = Icons.Filled.AutoAwesome,
+                            tooltip = "ИИ-Помощник (все вопросы)",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        TooltipIconButton(
                             onClick = onSearchClick,
                             icon = Icons.Filled.Search,
                             tooltip = "Поиск по заметкам и тегам"
@@ -275,15 +283,29 @@ fun NotesListScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Column {
-                                                Text("🎓 ИИ Профессор & Секретарь", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                                Text("Решение всех задач, конспекты, ГОСТ, экспорт .doc / .xls", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("✨ ИИ-Помощник (все вопросы и ответы)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                Text("Общий ассистент, Профессор, Секретарь, ГОСТ, код", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         },
-                                        leadingIcon = { Icon(Icons.Filled.School, null, tint = MaterialTheme.colorScheme.primary) },
+                                        leadingIcon = { Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
                                         onClick = {
                                             menuExpanded = false
                                             activeListSubMenu = null
                                             showAiAcademicSecretaryDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("💬 История диалогов с ИИ", fontWeight = FontWeight.SemiBold)
+                                                Text("Сохраненные сессии бесед, поиск и экспорт", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Forum, null, tint = MaterialTheme.colorScheme.tertiary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            showAiChatHistoryDialog = true
                                         }
                                     )
                                     HorizontalDivider()
@@ -459,7 +481,7 @@ fun NotesListScreen(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                    text = { Text("ИИ-Секретарь", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    text = { Text("ИИ-Помощник", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                 )
 
                 SmallFloatingActionButton(
@@ -915,6 +937,23 @@ fun NotesListScreen(
             repository = viewModel.repository,
             onDismissRequest = { showAiAcademicSecretaryDialog = false },
             onInsertTextIntoNote = null
+        )
+    }
+
+    if (showAiChatHistoryDialog) {
+        AiChatHistoryBottomSheet(
+            currentSessionId = "",
+            onDismissRequest = { showAiChatHistoryDialog = false },
+            onSelectSession = { session ->
+                com.example.util.AiChatSessionManager.setActiveSessionId(context, session.id)
+                showAiChatHistoryDialog = false
+                showAiAcademicSecretaryDialog = true
+            },
+            onStartNewSession = {
+                showAiChatHistoryDialog = false
+                com.example.util.AiChatSessionManager.clearActiveSession(context)
+                showAiAcademicSecretaryDialog = true
+            }
         )
     }
 }

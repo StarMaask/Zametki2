@@ -638,11 +638,11 @@ fun NoteEditorScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
 
-                    // 5.5. AI Academic Professor & Secretary
+                    // 5.5. AI Assistant & Secretary
                     TooltipIconButton(
                         onClick = { showAiAcademicSecretaryDialog = true },
-                        icon = Icons.Filled.School,
-                        tooltip = "ИИ Профессор всех наук & Секретарь ГОСТ",
+                        icon = Icons.Filled.AutoAwesome,
+                        tooltip = "ИИ-Помощник (все вопросы, решение задач, ГОСТ)",
                         tint = MaterialTheme.colorScheme.primary
                     )
 

@@ -3,7 +3,9 @@ package com.example.presentation.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -36,8 +38,84 @@ fun AiChatHistoryBottomSheet(
         mutableStateOf(AiChatSessionManager.getAllSessions(context))
     }
 
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedRoleFilter by remember { mutableStateOf<AiAcademicAndSecretaryService.AssistantRole?>(null) }
+    var sessionToRename by remember { mutableStateOf<AiChatSessionManager.SavedAiSession?>(null) }
+    var renameInput by remember { mutableStateOf("") }
+    var showClearAllConfirmDialog by remember { mutableStateOf(false) }
+
     val dateFormatter = remember {
         SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault())
+    }
+
+    val filteredSessions = remember(sessions, searchQuery, selectedRoleFilter) {
+        sessions.filter { session ->
+            val matchesRole = selectedRoleFilter == null || session.role == selectedRoleFilter
+            val matchesQuery = searchQuery.isBlank() ||
+                session.title.contains(searchQuery, ignoreCase = true) ||
+                session.messages.any { it.text.contains(searchQuery, ignoreCase = true) }
+            matchesRole && matchesQuery
+        }
+    }
+
+    if (sessionToRename != null) {
+        AlertDialog(
+            onDismissRequest = { sessionToRename = null },
+            title = { Text("Переименовать диалог") },
+            text = {
+                OutlinedTextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    label = { Text("Название диалога") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val session = sessionToRename
+                        if (session != null && renameInput.isNotBlank()) {
+                            AiChatSessionManager.renameSession(context, session.id, renameInput)
+                            sessions = AiChatSessionManager.getAllSessions(context)
+                        }
+                        sessionToRename = null
+                    }
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { sessionToRename = null }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    if (showClearAllConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirmDialog = false },
+            title = { Text("Очистить всю историю?") },
+            text = { Text("Все сохраненные диалоги с ИИ будут удалены без возможности восстановления.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        AiChatSessionManager.clearAllSessions(context)
+                        sessions = emptyList()
+                        showClearAllConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Удалить всё")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirmDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 
     ModalBottomSheet(
@@ -47,7 +125,7 @@ fun AiChatHistoryBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 18.dp)
                 .padding(bottom = 32.dp)
         ) {
             // Header
@@ -71,19 +149,26 @@ fun AiChatHistoryBottomSheet(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${sessions.size} сохраненных диалогов",
+                            text = "${sessions.size} диалогов сохранено",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                IconButton(onClick = onDismissRequest) {
-                    Icon(Icons.Filled.Close, contentDescription = "Закрыть")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (sessions.isNotEmpty()) {
+                        IconButton(onClick = { showClearAllConfirmDialog = true }) {
+                            Icon(Icons.Filled.DeleteSweep, contentDescription = "Очистить историю", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    IconButton(onClick = onDismissRequest) {
+                        Icon(Icons.Filled.Close, contentDescription = "Закрыть")
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Action: Start new dialog
             FilledTonalButton(
@@ -100,7 +185,81 @@ fun AiChatHistoryBottomSheet(
                 Text("Начать новый диалог с чистого листа", fontWeight = FontWeight.SemiBold)
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Search input
+            if (sessions.isNotEmpty()) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Поиск по истории бесед...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "Очистить", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Role Filter Chips
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedRoleFilter == null,
+                            onClick = { selectedRoleFilter = null },
+                            label = { Text("Все (${sessions.size})", fontSize = 12.sp) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.GENERAL,
+                            onClick = {
+                                selectedRoleFilter = if (selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.GENERAL) null else AiAcademicAndSecretaryService.AssistantRole.GENERAL
+                            },
+                            label = { Text("🌐 Общие", fontSize = 12.sp) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR,
+                            onClick = {
+                                selectedRoleFilter = if (selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) null else AiAcademicAndSecretaryService.AssistantRole.PROFESSOR
+                            },
+                            label = { Text("🎓 Профессор", fontSize = 12.sp) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.SECRETARY,
+                            onClick = {
+                                selectedRoleFilter = if (selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.SECRETARY) null else AiAcademicAndSecretaryService.AssistantRole.SECRETARY
+                            },
+                            label = { Text("💼 Секретарь", fontSize = 12.sp) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR,
+                            onClick = {
+                                selectedRoleFilter = if (selectedRoleFilter == AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR) null else AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR
+                            },
+                            label = { Text("✍️ Редактор", fontSize = 12.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
 
             if (sessions.isEmpty()) {
                 Box(
@@ -118,19 +277,32 @@ fun AiChatHistoryBottomSheet(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "История пуста",
+                            text = "История диалогов пуста",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Все ваши диалоги с Профессором и Секретарем будут сохраняться здесь автоматически",
+                            text = "Все ваши диалоги с Общим помощником, Профессором и Секретарем будут автоматически сохраняться здесь",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 24.dp)
                         )
                     }
+                }
+            } else if (filteredSessions.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Ничего не найдено по запросу «$searchQuery»",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else {
                 LazyColumn(
@@ -139,9 +311,30 @@ fun AiChatHistoryBottomSheet(
                         .heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(sessions, key = { it.id }) { session ->
+                    items(filteredSessions, key = { it.id }) { session ->
                         val isCurrent = session.id == currentSessionId
-                        val isProfessor = session.role == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR
+                        val roleInfo = when (session.role) {
+                            AiAcademicAndSecretaryService.AssistantRole.GENERAL -> Triple(
+                                Icons.Filled.AutoAwesome,
+                                "Общий AI",
+                                MaterialTheme.colorScheme.tertiary
+                            )
+                            AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> Triple(
+                                Icons.Filled.School,
+                                "Профессор",
+                                MaterialTheme.colorScheme.primary
+                            )
+                            AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> Triple(
+                                Icons.Filled.Work,
+                                "Секретарь",
+                                MaterialTheme.colorScheme.secondary
+                            )
+                            AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> Triple(
+                                Icons.Filled.EditNote,
+                                "Редактор",
+                                MaterialTheme.colorScheme.primary
+                            )
+                        }
 
                         Surface(
                             modifier = Modifier
@@ -154,7 +347,7 @@ fun AiChatHistoryBottomSheet(
                             color = if (isCurrent) {
                                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                             } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                             },
                             shape = RoundedCornerShape(14.dp),
                             border = if (isCurrent) {
@@ -164,30 +357,26 @@ fun AiChatHistoryBottomSheet(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 // Role icon
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = if (isProfessor) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                    } else {
-                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
-                                    },
+                                    color = roleInfo.third.copy(alpha = 0.15f),
                                     modifier = Modifier.size(38.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
-                                            imageVector = if (isProfessor) Icons.Filled.School else Icons.Filled.Work,
+                                            imageVector = roleInfo.first,
                                             contentDescription = null,
-                                            tint = if (isProfessor) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                            tint = roleInfo.third,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -199,9 +388,9 @@ fun AiChatHistoryBottomSheet(
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = if (isProfessor) "Профессор" else "Секретарь",
+                                            text = roleInfo.second,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = if (isProfessor) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                            color = roleInfo.third,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Text(
@@ -217,19 +406,36 @@ fun AiChatHistoryBottomSheet(
                                     }
                                 }
 
-                                IconButton(
-                                    onClick = {
-                                        AiChatSessionManager.deleteSession(context, session.id)
-                                        sessions = AiChatSessionManager.getAllSessions(context)
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.DeleteOutline,
-                                        contentDescription = "Удалить диалог",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            renameInput = session.title
+                                            sessionToRename = session
+                                        },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = "Переименовать",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            AiChatSessionManager.deleteSession(context, session.id)
+                                            sessions = AiChatSessionManager.getAllSessions(context)
+                                        },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.DeleteOutline,
+                                            contentDescription = "Удалить диалог",
+                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

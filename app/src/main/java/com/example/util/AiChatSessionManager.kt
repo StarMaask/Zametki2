@@ -22,7 +22,7 @@ object AiChatSessionManager {
     data class SavedAiSession(
         val id: String = UUID.randomUUID().toString(),
         val title: String = "Новый диалог",
-        val role: AiAcademicAndSecretaryService.AssistantRole = AiAcademicAndSecretaryService.AssistantRole.PROFESSOR,
+        val role: AiAcademicAndSecretaryService.AssistantRole = AiAcademicAndSecretaryService.AssistantRole.GENERAL,
         val messages: List<AcademicChatMessage> = emptyList(),
         val requisites: TitlePageRequisites = TitlePageRequisites(),
         val customTitlePageText: String? = null,
@@ -42,7 +42,12 @@ object AiChatSessionManager {
             val clean = firstUserMsg.replace("\n", " ").trim()
             return clean.take(50)
         }
-        return if (role == AiAcademicAndSecretaryService.AssistantRole.PROFESSOR) "Научный диалог" else "Официальный документ"
+        return when (role) {
+            AiAcademicAndSecretaryService.AssistantRole.GENERAL -> "Вопрос-ответ (ИИ)"
+            AiAcademicAndSecretaryService.AssistantRole.PROFESSOR -> "Научный диалог"
+            AiAcademicAndSecretaryService.AssistantRole.SECRETARY -> "Официальный документ"
+            AiAcademicAndSecretaryService.AssistantRole.CREATIVE_EDITOR -> "Редактирование текста"
+        }
     }
 
     private fun sessionToJson(session: SavedAiSession): JSONObject {
@@ -318,11 +323,59 @@ object AiChatSessionManager {
         } catch (_: Exception) {}
     }
 
+    fun renameSession(context: Context, sessionId: String, newTitle: String) {
+        try {
+            val all = getAllSessions(context).toMutableList()
+            val idx = all.indexOfFirst { it.id == sessionId }
+            if (idx != -1) {
+                val updated = all[idx].copy(title = newTitle.trim().take(60), updatedAt = System.currentTimeMillis())
+                all[idx] = updated
+                val historyArr = JSONArray()
+                for (s in all) {
+                    historyArr.put(sessionToJson(s))
+                }
+                val historyFile = File(context.filesDir, HISTORY_FILE_NAME)
+                historyFile.writeText(historyArr.toString(), Charsets.UTF_8)
+
+                val active = loadSession(context)
+                if (active?.id == sessionId) {
+                    val activeFile = File(context.filesDir, ACTIVE_FILE_NAME)
+                    activeFile.writeText(sessionToJson(updated).toString(), Charsets.UTF_8)
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun clearAllSessions(context: Context) {
+        try {
+            val historyFile = File(context.filesDir, HISTORY_FILE_NAME)
+            if (historyFile.exists()) historyFile.delete()
+            val activeFile = File(context.filesDir, ACTIVE_FILE_NAME)
+            if (activeFile.exists()) activeFile.delete()
+        } catch (_: Exception) {}
+    }
+
     fun clearActiveSession(context: Context) {
         try {
             val activeFile = File(context.filesDir, ACTIVE_FILE_NAME)
             if (activeFile.exists()) {
                 activeFile.delete()
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun setActiveSession(context: Context, session: SavedAiSession) {
+        try {
+            val activeFile = File(context.filesDir, ACTIVE_FILE_NAME)
+            activeFile.writeText(sessionToJson(session).toString(), Charsets.UTF_8)
+        } catch (_: Exception) {}
+    }
+
+    fun setActiveSessionId(context: Context, sessionId: String) {
+        try {
+            val s = getAllSessions(context).firstOrNull { it.id == sessionId }
+            if (s != null) {
+                setActiveSession(context, s)
             }
         } catch (_: Exception) {}
     }
