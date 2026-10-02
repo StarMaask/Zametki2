@@ -9,7 +9,11 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
@@ -95,6 +99,65 @@ fun NotesListScreen(
             }
         } else {
             onNoteClick(note.id)
+        }
+    }
+
+    val createWelcomeDemoNote: () -> Unit = {
+        coroutineScope.launch {
+            val demoNote = Note(
+                title = "👋 Добро пожаловать! Как устроен умный конспект",
+                content = """
+# 🎒 Привет! Это твой умный помощник в учебе и делах
+
+Здесь ты можешь писать конспекты, решать сложные задачи с ИИ, записывать голос учителя и форматировать доклады по ГОСТ.
+
+---
+
+### 🚀 Главные возможности приложения:
+
+1. **✨ ИИ-Помощник (кнопка в правом нижнем углу и вверху):**
+   - Нажми на иконку волшебной палочки, чтобы спросить что угодно.
+   - Сфотографируй задачу из учебника — ИИ распишет подробное решение по шагам!
+   - Попроси написать школьное сочинение, доклад или тезисы к уроку.
+
+2. **📐 Математические формулы и наука:**
+   - Формулы поддерживают красивый научный вид:
+     ${'$'}${'$'}E = mc^2${'$'}${'$'}
+     ${'$'}${'$'}c = \sqrt{a^2 + b^2}${'$'}${'$'}
+     ${'$'}${'$'}x_{1,2} = \frac{-b \pm \sqrt{D}}{2a}${'$'}${'$'}
+   - Нажми кнопку **∑** на нижней панели клавиатуры для быстрой вставки любых символов!
+
+3. **📝 Интерактивный чек-лист дел:**
+   - [x] Открыть приложение «Академические Заметки»
+   - [ ] Задать свой первый вопрос ИИ-Помощнику
+   - [ ] Сфотографировать конспект тетради или доску
+   - [ ] Попробовать таймер концентрации «Помодоро»
+
+4. **🎙️ Голосовой ввод и запись лекций:**
+   - Нажми на иконку микрофона вверху, чтобы надиктовать мысли — знаки препинания расставятся автоматически!
+
+5. **📤 Скачивание и печать:**
+   - В верхнем меню доступен экспорт в **Word (.docx)**, **PDF** и **Excel (.xls)** с аккуратными полями и титульным листом.
+
+---
+💡 *Совет: в верхнем меню открой «Интеллект-карта» или «Карточки для запоминания», чтобы превратить эту заметку в интерактивный тренажёр перед экзаменом!*
+                """.trimIndent(),
+                folder = "Школа и Учеба",
+                tags = listOf("старт", "подсказки", "шпаргалка"),
+                colorHex = "#FFFFFF",
+                textColorHex = "#1C1B1F"
+            )
+            viewModel.repository.insertNote(demoNote)
+            Toast.makeText(context, "Обучающая заметка создана! Нажмите на неё, чтобы посмотреть", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (preferencesManager.isFirstLaunchSync()) {
+            preferencesManager.setFirstLaunchDoneSync()
+            if (state.notes.isEmpty()) {
+                createWelcomeDemoNote()
+            }
         }
     }
 
@@ -630,36 +693,152 @@ fun NotesListScreen(
                 val notesToDisplay = state.filteredNotes
 
                 if (notesToDisplay.isEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Description,
-                            contentDescription = null,
-                            modifier = Modifier.size(72.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = if (hasActiveFilter) "Нет заметок с такими фильтрами" else "У вас пока нет заметок",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (hasActiveFilter) "Попробуйте изменить параметры поиска или сбросить фильтры" else "Нажмите кнопку «+», чтобы создать заметку или чек-лист",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                        if (hasActiveFilter) {
+                    if (hasActiveFilter) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Description,
+                                contentDescription = null,
+                                modifier = Modifier.size(72.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Нет заметок с такими фильтрами",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Попробуйте изменить параметры поиска или сбросить фильтры",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
                             Spacer(modifier = Modifier.height(12.dp))
                             FilledTonalButton(onClick = { viewModel.clearAllFilters() }) {
                                 Text("Сбросить фильтры")
                             }
+                        }
+                    } else {
+                        // Interactive Hero Onboarding for new users & students
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // Welcome Hero Card
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "Добро пожаловать в Умные Заметки!",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Твой карманный помощник для учебы, уроков, решения задач и документов. Выбери действие для быстрого старта:",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "Быстрый старт:",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 4.dp, bottom = 8.dp)
+                            )
+
+                            // Quick Action 1: Ask AI or Solve Task
+                            QuickStartHeroCard(
+                                title = "✨ Спросить ИИ или решить задачу",
+                                subtitle = "Пошаговые решения по математике, физике, сочинения, код и любые вопросы",
+                                icon = Icons.Filled.AutoAwesome,
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                                onClick = { showAiAcademicSecretaryDialog = true }
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Quick Action 2: New Note
+                            QuickStartHeroCard(
+                                title = "📝 Новый конспект или домашка",
+                                subtitle = "Чистый тетрадный лист в клетку или линейку с поддержкой формул и списков",
+                                icon = Icons.Filled.EditNote,
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                onClick = {
+                                    if (onNewNoteWithTemplate != null) {
+                                        onNewNoteWithTemplate(null)
+                                    } else {
+                                        onNoteClick(0L)
+                                    }
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Quick Action 3: Ready Templates
+                            QuickStartHeroCard(
+                                title = "📑 Готовые шаблоны (доклады, рефераты)",
+                                subtitle = "Оформление по ГОСТ с титульным листом и оглавлением в один клик",
+                                icon = Icons.Filled.Description,
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                onClick = { showTemplateDialog = true }
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Quick Action 4: Demo Note
+                            QuickStartHeroCard(
+                                title = "👋 Создать обучающую демо-заметку",
+                                subtitle = "Посмотреть наглядный пример с формулами, чек-листом и подсказками",
+                                icon = Icons.Filled.School,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                onClick = { createWelcomeDemoNote() }
+                            )
                         }
                     }
                 } else {
@@ -955,5 +1134,65 @@ fun NotesListScreen(
                 showAiAcademicSecretaryDialog = true
             }
         )
+    }
+}
+
+@Composable
+private fun QuickStartHeroCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    containerColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = containerColor.copy(alpha = 0.55f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, containerColor.copy(alpha = 0.8f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(containerColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }

@@ -83,6 +83,14 @@ class UserPreferencesManager(private val context: Context) {
         return syncPrefs.getBoolean("pin_enabled", false)
     }
 
+    fun isFirstLaunchSync(): Boolean {
+        return !syncPrefs.getBoolean("is_first_launch_done", false)
+    }
+
+    fun setFirstLaunchDoneSync() {
+        syncPrefs.edit().putBoolean("is_first_launch_done", true).apply()
+    }
+
     fun verifyPinSync(input: String): Boolean {
         val stored = getPinCodeSync()
         return input == stored

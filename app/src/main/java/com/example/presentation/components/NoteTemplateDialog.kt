@@ -32,7 +32,7 @@ fun NoteTemplateDialog(
     var editingItemIndex by remember { mutableStateOf<Int?>(null) }
     var editingItemText by remember { mutableStateOf("") }
 
-    val categories = listOf("Все", "Официальные документы", "Списки и задачи", "Базовые")
+    val categories = listOf("Все", "Школа и учёба", "Официальные документы", "Списки и задачи", "Базовые")
 
     val filteredTemplates = remember(selectedCategory) {
         if (selectedCategory == "Все") {
@@ -125,6 +125,9 @@ fun NoteTemplateDialog(
                                 ) {
                                     val icon: ImageVector = when (template) {
                                         NoteTemplate.BLANK -> Icons.Filled.Description
+                                        NoteTemplate.SCHOOL_HOMEWORK -> Icons.Filled.MenuBook
+                                        NoteTemplate.SCHOOL_ESSAY -> Icons.Filled.HistoryEdu
+                                        NoteTemplate.LECTURE_NOTE -> Icons.Filled.School
                                         NoteTemplate.STATEMENT_VACATION -> Icons.Filled.BeachAccess
                                         NoteTemplate.STATEMENT_EMPLOYMENT -> Icons.Filled.Badge
                                         NoteTemplate.STATEMENT_DISMISSAL -> Icons.Filled.ExitToApp
