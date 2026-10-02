@@ -38,6 +38,7 @@ import com.example.presentation.components.NoteCard
 import com.example.presentation.components.NoteTemplateDialog
 import com.example.presentation.components.AiAcademicSecretaryDialog
 import com.example.presentation.components.AiChatHistoryBottomSheet
+import com.example.presentation.components.InteractiveOnboardingDialog
 import com.example.domain.model.PageFormat
 import com.example.presentation.components.FlashcardStudyDialog
 import com.example.presentation.components.MindMapDialog
@@ -80,6 +81,7 @@ fun NotesListScreen(
     var showFocusTimerDialog by remember { mutableStateOf(false) }
     var showAiAcademicSecretaryDialog by remember { mutableStateOf(false) }
     var showAiChatHistoryDialog by remember { mutableStateOf(false) }
+    var showInteractiveOnboardingDialog by remember { mutableStateOf(false) }
     var noteToShare by remember { mutableStateOf<Note?>(null) }
     val deletedNotes by viewModel.repository.getDeletedNotes().collectAsState(initial = emptyList())
 
@@ -153,6 +155,9 @@ fun NotesListScreen(
     }
 
     LaunchedEffect(Unit) {
+        if (!preferencesManager.isOnboardingCompletedSync()) {
+            showInteractiveOnboardingDialog = true
+        }
         if (preferencesManager.isFirstLaunchSync()) {
             preferencesManager.setFirstLaunchDoneSync()
             if (state.notes.isEmpty()) {
@@ -525,6 +530,20 @@ fun NotesListScreen(
                                             menuExpanded = false
                                             activeListSubMenu = null
                                             showHelpDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("🎓 Обучение и гид по функциям")
+                                                Text("Интерактивный тур для новичков и школьников", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.School, null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            activeListSubMenu = null
+                                            showInteractiveOnboardingDialog = true
                                         }
                                     )
                                 }
@@ -1132,6 +1151,28 @@ fun NotesListScreen(
                 showAiChatHistoryDialog = false
                 com.example.util.AiChatSessionManager.clearActiveSession(context)
                 showAiAcademicSecretaryDialog = true
+            }
+        )
+    }
+
+    if (showInteractiveOnboardingDialog) {
+        InteractiveOnboardingDialog(
+            onDismissRequest = {
+                showInteractiveOnboardingDialog = false
+            },
+            onComplete = {
+                preferencesManager.setOnboardingCompletedSync(true)
+                showInteractiveOnboardingDialog = false
+            },
+            onOpenAiAssistant = {
+                preferencesManager.setOnboardingCompletedSync(true)
+                showInteractiveOnboardingDialog = false
+                showAiAcademicSecretaryDialog = true
+            },
+            onCreateDemoNote = {
+                preferencesManager.setOnboardingCompletedSync(true)
+                showInteractiveOnboardingDialog = false
+                createWelcomeDemoNote()
             }
         )
     }

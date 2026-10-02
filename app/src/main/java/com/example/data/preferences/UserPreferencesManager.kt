@@ -91,6 +91,14 @@ class UserPreferencesManager(private val context: Context) {
         syncPrefs.edit().putBoolean("is_first_launch_done", true).apply()
     }
 
+    fun isOnboardingCompletedSync(): Boolean {
+        return syncPrefs.getBoolean("is_onboarding_completed", false)
+    }
+
+    fun setOnboardingCompletedSync(completed: Boolean = true) {
+        syncPrefs.edit().putBoolean("is_onboarding_completed", completed).apply()
+    }
+
     fun verifyPinSync(input: String): Boolean {
         val stored = getPinCodeSync()
         return input == stored
