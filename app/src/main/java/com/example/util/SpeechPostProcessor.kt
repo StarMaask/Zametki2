@@ -59,14 +59,46 @@ object SpeechPostProcessor {
     )
 
     /**
+     * Eliminates degenerate repetition loops (e.g. "вот, вот, вот, вот...", "да, да, да...",
+     * or repetitive phrases) frequently caused by autoregressive decoding during pauses or silence.
+     */
+    fun collapseRepetitionLoops(text: String): String {
+        if (text.isBlank()) return text
+        var res = text
+
+        // 1. Single word repetition loops with any punctuation (commas, dots, spaces, dashes)
+        // Matches 3 or more occurrences of the same word (e.g. "вот, вот, вот...", "да, да, да...")
+        res = res.replace(Regex("(?iu)\\b([\\p{L}\\p{Nd}]+)(?:[\\s,;—\\-]+(?i:\\1)){2,}\\b")) { matchResult ->
+            matchResult.groupValues[1]
+        }
+
+        // 2. Short multi-word phrase loops (2-4 words) repeated 2+ additional times
+        res = res.replace(Regex("(?iu)\\b([\\p{L}\\p{Nd}]+(?:\\s+[\\p{L}\\p{Nd}]+){1,3})(?:[\\s,;—\\-]+(?i:\\1)){2,}\\b")) { matchResult ->
+            matchResult.groupValues[1]
+        }
+
+        // 3. Cross-line word repetition loops (e.g. "вот,\nвот,\nвот")
+        res = res.replace(Regex("(?iu)\\b([\\p{L}\\p{Nd}]+)(?:[\\s,;.—\\-\n\r]+(?i:\\1)){2,}\\b")) { matchResult ->
+            matchResult.groupValues[1]
+        }
+
+        // 4. Clean leftover consecutive duplicate punctuation or spaces
+        res = res.replace(Regex("([,;])\\s*[,;]+"), "$1")
+        res = res.replace(Regex("[ \\t]{2,}"), " ")
+        return res.trim()
+    }
+
+    /**
      * Filters verbal hesitations and stutters common in live lectures.
      */
     fun cleanVerbalFillers(text: String): String {
         var res = text
         // Remove isolated hesitation sounds like "эээ", "ммм", "ааа", "ээ", "мм"
-        res = res.replace(Regex("(?i)\\b(э{2,}|м{2,}|а{2,}|гм|хм)\\b[,.]?"), "")
+        res = res.replace(Regex("(?iu)\\b(э{2,}|м{2,}|а{2,}|гм|хм|хмм)\\b[,.]?"), "")
         // Clean double repeated words like "в в", "на на", "что что", "мы мы"
-        res = res.replace(Regex("(?i)\\b([а-яa-z]{1,4})\\s+\\1\\b"), "$1")
+        res = res.replace(Regex("(?iu)\\b([а-яa-z]{1,4})\\s+\\1\\b"), "$1")
+        // Collapse repetition loops (e.g. "вот, вот, вот...", "да, да, да...")
+        res = collapseRepetitionLoops(res)
         // Clean consecutive spaces
         res = res.replace(Regex("[ \\t]{2,}"), " ")
         return res.trim()
@@ -107,6 +139,9 @@ object SpeechPostProcessor {
         if (enableSmartPunctuation) {
             result = applySmartPunctuation(result)
         }
+
+        // 3. Final anti-loop pass to clean any punctuation-generated repetition artifacts
+        result = collapseRepetitionLoops(result)
 
         return result
     }

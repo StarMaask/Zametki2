@@ -455,15 +455,20 @@ class LectureTranscriptionManager(private val context: Context) {
                             if (result.isSuccess) {
                                 val text = result.getOrNull().orEmpty()
                                 if (text.isNotBlank()) {
+                                    val cleaned = SpeechPostProcessor.process(
+                                        text = text,
+                                        enableSmartPunctuation = preferencesManager.isSmartPunctuationSync(),
+                                        replacements = preferencesManager.getWordReplacementsSync()
+                                    )
                                     val formatted = if (durationMinutes >= 5) {
                                         val includeTimestamps = preferencesManager.isTimestampsInLectureSync()
                                         if (includeTimestamps) {
-                                            "[$durationMinutes мин]\n$text"
+                                            "[$durationMinutes мин]\n$cleaned"
                                         } else {
-                                            text
+                                            cleaned
                                         }
                                     } else {
-                                        formatRecognizedChunk(text)
+                                        formatRecognizedChunk(cleaned)
                                     }
                                     onTextAppendedCallback?.invoke(formatted)
                                 }

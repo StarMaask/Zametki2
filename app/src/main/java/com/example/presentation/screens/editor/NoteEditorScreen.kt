@@ -908,6 +908,27 @@ fun NoteEditorScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Column {
+                                            Text("🧹 Очистить повторы и зацикливания", fontWeight = FontWeight.SemiBold)
+                                            Text("Удалить бесконечные повторы слов («вот, вот...») и речевой шум", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoFixHigh, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        activeTopSubMenu = null
+                                        val currentText = state.content
+                                        val cleaned = SpeechPostProcessor.collapseRepetitionLoops(currentText)
+                                        if (cleaned != currentText) {
+                                            viewModel.onContentChange(cleaned)
+                                            Toast.makeText(context, "Повторяющиеся зацикливания успешно очищены!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "В заметке нет повторяющихся зацикливаний", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
                                             Text("Ключ Gemini API")
                                             Text("Настройка ключа для распознавания текста и ИИ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }

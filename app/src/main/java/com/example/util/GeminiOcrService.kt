@@ -382,7 +382,7 @@ object GeminiOcrService {
                     result = result.removeSuffix("```").trim()
                 }
             }
-            result
+            SpeechPostProcessor.collapseRepetitionLoops(result)
         } catch (e: Exception) {
             e.printStackTrace()
             ""
@@ -469,11 +469,13 @@ object GeminiOcrService {
             val prompt = "Ты — профессиональная система расшифровки аудио в текст (Speech-to-Text) для русского языка.\n" +
                     "Расшифруй предоставленную аудиозапись полностью и точно от начала до самого конца.\n" +
                     "Правила:\n" +
-                    "1. Точно передай все сказанные слова, мысли, термины и числовые данные.\n" +
+                    "1. Точно передай смысл и сказанные слова, мысли, термины, технические названия и числовые данные.\n" +
                     "2. Расставь правильную пунктуацию, заглавные буквы и разбей речь на логические абзацы.\n" +
-                    "3. Убери слова-паразиты и заикания, если они мешают восприятию смысла.\n" +
-                    "4. Не обрывай и не сокращай текст, передай всю запись полностью.\n" +
-                    "5. Верни ТОЛЬКО расшифрованный текст заметки без вступительных фраз или обрамления в ```."
+                    "3. Убирай слова-паразиты, заикания и повторы слов («вот-вот», «ну-ну», «эээ»).\n" +
+                    "4. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО циклически повторять одно и то же слово или фразу (например: «вот, вот, вот...», «да, да, да...»). Если в аудиозаписи пауза, шум, неразборчивый фрагмент или заминка — запиши слово один раз и продолжай дальше, либо опусти его.\n" +
+                    "5. Игнорируй фоновые шумы, дыхание и паузы между фразами.\n" +
+                    "6. Не обрывай и не сокращай текст, передай всю запись полностью.\n" +
+                    "7. Верни ТОЛЬКО расшифрованный текст заметки без вступительных фраз или обрамления в ```."
 
             // For large files (> 8 MB or > 5 min, e.g. 55-minute recordings):
             // Use Gemini Files API with streaming upload (Zero RAM overhead, supports up to 2GB)
@@ -769,8 +771,10 @@ object GeminiOcrService {
                 put("contents", contents)
 
                 put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.1)
+                    put("temperature", 0.3)
                     put("maxOutputTokens", 65536)
+                    put("presencePenalty", 0.3)
+                    put("frequencyPenalty", 0.3)
                 })
             }
 
@@ -952,8 +956,10 @@ object GeminiOcrService {
                 put("contents", contents)
 
                 put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.1)
+                    put("temperature", 0.3)
                     put("maxOutputTokens", 65536)
+                    put("presencePenalty", 0.3)
+                    put("frequencyPenalty", 0.3)
                 })
             }
 
