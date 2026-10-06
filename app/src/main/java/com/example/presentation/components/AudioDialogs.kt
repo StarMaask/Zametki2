@@ -42,6 +42,7 @@ fun AudioRecordDialog(
     val preferencesManager = remember { UserPreferencesManager(context) }
     var isRecording by remember { mutableStateOf(false) }
     var isTranscribing by remember { mutableStateOf(false) }
+    var transcribingProgressText by remember { mutableStateOf("ИИ пишет...") }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var outputFile by remember { mutableStateOf<File?>(null) }
     var recordDurationSeconds by remember { mutableIntStateOf(0) }
@@ -212,19 +213,33 @@ fun AudioRecordDialog(
                                     if (savedFile != null && savedFile.exists()) {
                                         onRecordingFinished(savedFile.absolutePath)
                                         isTranscribing = true
+                                        transcribingProgressText = "ИИ обрабатывает запись..."
                                         Toast.makeText(context, "ИИ расшифровывает непрерывную запись...", Toast.LENGTH_SHORT).show()
                                         coroutineScope.launch {
-                                            val result = GeminiOcrService.transcribeAudioWithGemini(context, savedFile)
-                                            isTranscribing = false
-                                            if (result.isSuccess) {
-                                                val text = result.getOrNull() ?: ""
-                                                onTextTranscribed(text)
-                                                Toast.makeText(context, "Речь расшифрована в заметку!", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка ИИ"
-                                                Toast.makeText(context, "Аудио сохранено, ошибка ИИ: $err", Toast.LENGTH_LONG).show()
+                                            try {
+                                                val result = GeminiOcrService.transcribeAudioWithGemini(
+                                                    context = context,
+                                                    audioFile = savedFile,
+                                                    onProgress = { status ->
+                                                        transcribingProgressText = status
+                                                    }
+                                                )
+                                                isTranscribing = false
+                                                if (result.isSuccess) {
+                                                    val text = result.getOrNull() ?: ""
+                                                    onTextTranscribed(text)
+                                                    Toast.makeText(context, "Речь расшифрована в заметку!", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка ИИ"
+                                                    Toast.makeText(context, "Аудио сохранено, ошибка ИИ: $err", Toast.LENGTH_LONG).show()
+                                                }
+                                                onDismiss()
+                                            } catch (t: Throwable) {
+                                                isTranscribing = false
+                                                val err = if (t is OutOfMemoryError) "Недостаточно памяти" else (t.localizedMessage ?: "Сбой расшифровки")
+                                                Toast.makeText(context, "Аудио сохранено, $err", Toast.LENGTH_LONG).show()
+                                                onDismiss()
                                             }
-                                            onDismiss()
                                         }
                                     } else {
                                         onDismiss()
@@ -240,7 +255,7 @@ fun AudioRecordDialog(
                             if (isTranscribing) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("ИИ пишет...")
+                                Text(transcribingProgressText)
                             } else {
                                 Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -584,6 +599,7 @@ fun AudioPlaybackCard(
             if (onTranscribeRequested != null) {
                 Spacer(modifier = Modifier.height(10.dp))
                 var isTranscribingAudio by remember { mutableStateOf(false) }
+                var transcribeStatusText by remember { mutableStateOf("ИИ расшифровывает запись в текст...") }
                 val cardContext = LocalContext.current
                 val coroutineScope = rememberCoroutineScope()
 
@@ -591,24 +607,38 @@ fun AudioPlaybackCard(
                     onClick = {
                         if (isTranscribingAudio) return@Button
                         isTranscribingAudio = true
+                        transcribeStatusText = "Подготовка аудиозаписи..."
                         coroutineScope.launch {
-                            val file = java.io.File(audioUri)
-                            if (file.exists() && file.length() > 0L) {
-                                val result = com.example.util.GeminiOcrService.transcribeAudioWithGemini(cardContext, file)
-                                if (result.isSuccess) {
-                                    val text = result.getOrNull().orEmpty()
-                                    if (text.isNotBlank()) {
-                                        onTranscribeRequested.invoke(text)
-                                        Toast.makeText(cardContext, "Аудиозапись успешно оцифрована в текст!", Toast.LENGTH_SHORT).show()
+                            try {
+                                val file = java.io.File(audioUri)
+                                if (file.exists() && file.length() > 0L) {
+                                    val result = com.example.util.GeminiOcrService.transcribeAudioWithGemini(
+                                        context = cardContext,
+                                        audioFile = file,
+                                        onProgress = { status ->
+                                            transcribeStatusText = status
+                                        }
+                                    )
+                                    if (result.isSuccess) {
+                                        val text = result.getOrNull().orEmpty()
+                                        if (text.isNotBlank()) {
+                                            onTranscribeRequested.invoke(text)
+                                            Toast.makeText(cardContext, "Аудиозапись успешно оцифрована в текст!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка распознавания"
+                                        Toast.makeText(cardContext, err, Toast.LENGTH_LONG).show()
                                     }
                                 } else {
-                                    val err = result.exceptionOrNull()?.localizedMessage ?: "Ошибка распознавания"
-                                    Toast.makeText(cardContext, err, Toast.LENGTH_LONG).show()
+                                    Toast.makeText(cardContext, "Файл аудиозаписи не найден", Toast.LENGTH_SHORT).show()
                                 }
-                            } else {
-                                Toast.makeText(cardContext, "Файл аудиозаписи не найден", Toast.LENGTH_SHORT).show()
+                            } catch (t: Throwable) {
+                                val err = if (t is OutOfMemoryError) "Недостаточно памяти для оцифровки" else (t.localizedMessage ?: "Ошибка")
+                                Toast.makeText(cardContext, "Сбой распознавания: $err", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isTranscribingAudio = false
+                                transcribeStatusText = "ИИ расшифровывает запись в текст..."
                             }
-                            isTranscribingAudio = false
                         }
                     },
                     enabled = !isTranscribingAudio,
@@ -622,7 +652,7 @@ fun AudioPlaybackCard(
                             color = MaterialTheme.colorScheme.onTertiary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("ИИ расшифровывает запись в текст...", fontSize = 13.sp)
+                        Text(transcribeStatusText, fontSize = 13.sp)
                     } else {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))

@@ -403,8 +403,6 @@ class LectureTranscriptionManager(private val context: Context) {
         mainHandler.removeCallbacks(amplitudeRunnable)
         mainHandler.removeCallbacks(restartRunnable)
 
-        com.example.service.LectureRecordingService.stop(context)
-
         if (wasContinuous) {
             try {
                 mediaRecorder?.stop()
@@ -420,17 +418,53 @@ class LectureTranscriptionManager(private val context: Context) {
                 val filePath = savedFile.absolutePath
                 onAudioSavedCallback?.invoke(filePath)
 
+                val durationMs = AudioChunkerUtil.getAudioDurationMs(savedFile)
+                val durationMinutes = durationMs / (60 * 1000L)
+
                 // Automatic speech-to-text transcription via Gemini AI
                 isTranscribing = true
-                transcriptionProgress = "Оцифровка записи в текст через Gemini ИИ..."
+                transcriptionProgress = if (durationMinutes > 0) {
+                    "Оцифровка записи (~$durationMinutes мин) через Gemini ИИ..."
+                } else {
+                    "Оцифровка записи в текст через Gemini ИИ..."
+                }
+
+                com.example.service.LectureRecordingService.updateStatus(
+                    context,
+                    isPaused = false,
+                    durationText = "Оцифровка",
+                    noteTitle = transcriptionProgress
+                )
+
                 scope.launch {
                     try {
-                        val result = GeminiOcrService.transcribeAudioWithGemini(context, savedFile)
+                        val result = GeminiOcrService.transcribeAudioWithGemini(
+                            context = context,
+                            audioFile = savedFile,
+                            onProgress = { status ->
+                                transcriptionProgress = status
+                                com.example.service.LectureRecordingService.updateStatus(
+                                    context,
+                                    isPaused = false,
+                                    durationText = "Оцифровка",
+                                    noteTitle = status
+                                )
+                            }
+                        )
                         withContext(Dispatchers.Main) {
                             if (result.isSuccess) {
                                 val text = result.getOrNull().orEmpty()
                                 if (text.isNotBlank()) {
-                                    val formatted = formatRecognizedChunk(text)
+                                    val formatted = if (durationMinutes >= 5) {
+                                        val includeTimestamps = preferencesManager.isTimestampsInLectureSync()
+                                        if (includeTimestamps) {
+                                            "[$durationMinutes мин]\n$text"
+                                        } else {
+                                            text
+                                        }
+                                    } else {
+                                        formatRecognizedChunk(text)
+                                    }
                                     onTextAppendedCallback?.invoke(formatted)
                                 }
                             } else {
@@ -442,16 +476,23 @@ class LectureTranscriptionManager(private val context: Context) {
                             isTranscribing = false
                             transcriptionProgress = ""
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Transcription failed", e)
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Transcription failed", t)
                         withContext(Dispatchers.Main) {
                             isTranscribing = false
                             transcriptionProgress = ""
+                            val errMsg = if (t is OutOfMemoryError) "Недостаточно памяти для оцифровки длинной записи" else (t.localizedMessage ?: "Сбой расшифровки звука")
+                            onErrorCallback?.invoke(errMsg)
                         }
+                    } finally {
+                        com.example.service.LectureRecordingService.stop(context)
                     }
                 }
+            } else {
+                com.example.service.LectureRecordingService.stop(context)
             }
         } else {
+            com.example.service.LectureRecordingService.stop(context)
             try {
                 speechRecognizer?.stopListening()
                 speechRecognizer?.cancel()
