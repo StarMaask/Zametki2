@@ -773,8 +773,6 @@ object GeminiOcrService {
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.3)
                     put("maxOutputTokens", 65536)
-                    put("presencePenalty", 0.3)
-                    put("frequencyPenalty", 0.3)
                 })
             }
 
@@ -958,8 +956,6 @@ object GeminiOcrService {
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.3)
                     put("maxOutputTokens", 65536)
-                    put("presencePenalty", 0.3)
-                    put("frequencyPenalty", 0.3)
                 })
             }
 
