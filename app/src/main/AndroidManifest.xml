@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -56,6 +57,11 @@
         <service
             android:name=".service.LectureRecordingService"
             android:foregroundServiceType="microphone"
+            android:exported="false" />
+
+        <service
+            android:name=".service.AudioTranscriptionForegroundService"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
 
         <receiver

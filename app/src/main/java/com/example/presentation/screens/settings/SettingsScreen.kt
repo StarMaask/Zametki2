@@ -30,6 +30,7 @@ import com.example.domain.model.Note
 import com.example.domain.model.UserProfileRequisites
 import com.example.domain.repository.NoteRepository
 import com.example.presentation.components.AudioPerceptionSettingsDialog
+import com.example.presentation.components.InteractiveOnboardingDialog
 import com.example.presentation.components.SignaturePadDialog
 import com.example.presentation.components.TooltipIconButton
 import com.example.presentation.components.UserProfileRequisitesDialog
@@ -67,6 +68,7 @@ fun SettingsScreen(
     var importJsonInput by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf<String?>(null) }
     var showAudioPerceptionDialog by remember { mutableStateOf(false) }
+    var showOnboardingDialog by remember { mutableStateOf(false) }
 
     val geminiApiKeyFromStore by preferencesManager.geminiApiKeyFlow.collectAsState(initial = "")
     var geminiKeyInput by remember { mutableStateOf("") }
@@ -737,6 +739,31 @@ fun SettingsScreen(
                     Text("Импорт")
                 }
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
+
+            // TUTORIAL & HELP SECTION
+            Text(
+                text = "Обучение и подсказки",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = "Ознакомьтесь с возможностями умных заметок, фонового распознавания звука и ИИ-ассистента:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = { showOnboardingDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("open_tutorial_button")
+            ) {
+                Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Пройти интерактивное обучение")
+            }
         }
     }
 
@@ -864,6 +891,16 @@ fun SettingsScreen(
         AudioPerceptionSettingsDialog(
             preferencesManager = preferencesManager,
             onDismissRequest = { showAudioPerceptionDialog = false }
+        )
+    }
+
+    if (showOnboardingDialog) {
+        InteractiveOnboardingDialog(
+            onDismissRequest = { showOnboardingDialog = false },
+            onComplete = {
+                preferencesManager.setOnboardingCompletedSync(true)
+                showOnboardingDialog = false
+            }
         )
     }
 }

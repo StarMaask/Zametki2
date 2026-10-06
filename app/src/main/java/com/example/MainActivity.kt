@@ -139,7 +139,7 @@ class MainActivity : FragmentActivity() {
                         val notesListViewModel = remember { NotesListViewModel(repository, preferencesManager) }
 
                         LaunchedEffect(Unit) {
-                            val openNoteId = intent.getLongExtra("open_note_id", 0L)
+                            val openNoteId = intent.getLongExtra("OPEN_NOTE_ID", 0L).let { if (it > 0L) it else intent.getLongExtra("open_note_id", 0L) }
                             val widgetNoteId = intent.getLongExtra(com.example.widget.NotesAppWidgetProvider.EXTRA_NOTE_ID, 0L)
                             val widgetAction = intent.getStringExtra(com.example.widget.NotesAppWidgetProvider.EXTRA_ACTION)
 
@@ -236,5 +236,10 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
     }
 }

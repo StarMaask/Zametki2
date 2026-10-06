@@ -354,6 +354,25 @@ fun NoteEditorScreen(
         }
     }
 
+    LaunchedEffect(state.noteId) {
+        com.example.service.AudioTranscriptionForegroundService.events.collect { event ->
+            when (event) {
+                is com.example.service.AudioTranscriptionForegroundService.TranscriptionEvent.Completed -> {
+                    if (event.noteId == state.noteId || (event.noteId == 0L && state.noteId == 0L)) {
+                        appendRecognizedText(event.text)
+                        Toast.makeText(context, "Речь успешно расшифрована в заметку!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                is com.example.service.AudioTranscriptionForegroundService.TranscriptionEvent.Error -> {
+                    if (event.noteId == state.noteId) {
+                        Toast.makeText(context, "Ошибка расшифровки: ${event.errorMessage}", Toast.LENGTH_LONG).show()
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
+
     var startSpeechToTextAction: () -> Unit = {}
 
     val recordAudioPermissionForSpeechLauncher = rememberLauncherForActivityResult(
@@ -363,6 +382,7 @@ fun NoteEditorScreen(
             val started = lectureManager.startRecording(
                 noteTitle = state.title.ifBlank { "Новая заметка" },
                 mode = pendingRecordingMode,
+                noteId = state.noteId,
                 onError = { err ->
                     Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
                 },
@@ -426,6 +446,7 @@ fun NoteEditorScreen(
                 val started = lectureManager.startRecording(
                     noteTitle = title,
                     mode = mode,
+                    noteId = state.noteId,
                     onError = { err ->
                         Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
                     },
@@ -2926,6 +2947,8 @@ fun NoteEditorScreen(
                 AudioPlaybackCard(
                     audioUri = state.audioUri!!,
                     noteContent = state.content,
+                    noteId = state.noteId,
+                    noteTitle = state.title.ifBlank { "Заметка" },
                     onDelete = { viewModel.onAudioUriChange(null) },
                     onInsertTimestamp = { tag ->
                         appendRecognizedText(tag)
@@ -3534,6 +3557,8 @@ fun NoteEditorScreen(
 
     if (showAudioDialog) {
         AudioRecordDialog(
+            noteId = state.noteId,
+            noteTitle = state.title.ifBlank { "Заметка" },
             onDismiss = { showAudioDialog = false },
             onRecordingFinished = { path ->
                 viewModel.onAudioUriChange(path)

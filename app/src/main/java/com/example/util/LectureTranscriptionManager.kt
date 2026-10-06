@@ -94,7 +94,37 @@ class LectureTranscriptionManager(private val context: Context) {
     private var lastPartialRaw = ""
     private var lastCommittedRaw = ""
     private var currentNoteTitle = "Новая заметка"
+    var currentNoteId: Long = 0L
     private var wasMuted = false
+
+    init {
+        scope.launch {
+            com.example.service.AudioTranscriptionForegroundService.events.collect { event ->
+                when (event) {
+                    is com.example.service.AudioTranscriptionForegroundService.TranscriptionEvent.Progress -> {
+                        if (event.noteId == currentNoteId || currentNoteId == 0L) {
+                            isTranscribing = true
+                            transcriptionProgress = event.statusText
+                        }
+                    }
+                    is com.example.service.AudioTranscriptionForegroundService.TranscriptionEvent.Completed -> {
+                        if (event.noteId == currentNoteId || currentNoteId == 0L) {
+                            isTranscribing = false
+                            transcriptionProgress = ""
+                            onTextAppendedCallback?.invoke(event.text)
+                        }
+                    }
+                    is com.example.service.AudioTranscriptionForegroundService.TranscriptionEvent.Error -> {
+                        if (event.noteId == currentNoteId || currentNoteId == 0L) {
+                            isTranscribing = false
+                            transcriptionProgress = ""
+                            onErrorCallback?.invoke(event.errorMessage)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private val timerRunnable = object : Runnable {
         override fun run() {
@@ -261,6 +291,7 @@ class LectureTranscriptionManager(private val context: Context) {
     fun startRecording(
         noteTitle: String = "Новая заметка",
         mode: String? = null,
+        noteId: Long = 0L,
         onError: ((String) -> Unit)? = null,
         onAudioSaved: ((String) -> Unit)? = null,
         onTextAppended: (String) -> Unit
@@ -268,6 +299,7 @@ class LectureTranscriptionManager(private val context: Context) {
         val selectedMode = mode ?: preferencesManager.getLectureRecordingModeSync()
         activeMode = selectedMode
         currentNoteTitle = noteTitle
+        currentNoteId = noteId
         onErrorCallback = onError
         onAudioSavedCallback = onAudioSaved
         onTextAppendedCallback = onTextAppended
@@ -414,6 +446,9 @@ class LectureTranscriptionManager(private val context: Context) {
             } catch (_: Exception) {}
             mediaRecorder = null
 
+            // Stop recording foreground service to release microphone cleanly
+            com.example.service.LectureRecordingService.stop(context)
+
             if (savedFile != null && savedFile.exists() && savedFile.length() > 0L) {
                 val filePath = savedFile.absolutePath
                 onAudioSavedCallback?.invoke(filePath)
@@ -421,80 +456,22 @@ class LectureTranscriptionManager(private val context: Context) {
                 val durationMs = AudioChunkerUtil.getAudioDurationMs(savedFile)
                 val durationMinutes = durationMs / (60 * 1000L)
 
-                // Automatic speech-to-text transcription via Gemini AI
+                // Automatic speech-to-text transcription via AudioTranscriptionForegroundService
+                // Runs reliably in background even when user minimizes the app!
                 isTranscribing = true
                 transcriptionProgress = if (durationMinutes > 0) {
-                    "Оцифровка записи (~$durationMinutes мин) через Gemini ИИ..."
+                    "ИИ расшифровывает запись (~$durationMinutes мин)..."
                 } else {
-                    "Оцифровка записи в текст через Gemini ИИ..."
+                    "ИИ расшифровывает запись в текст..."
                 }
 
-                com.example.service.LectureRecordingService.updateStatus(
-                    context,
-                    isPaused = false,
-                    durationText = "Оцифровка",
-                    noteTitle = transcriptionProgress
+                com.example.service.AudioTranscriptionForegroundService.start(
+                    context = context,
+                    audioFilePath = filePath,
+                    noteId = currentNoteId,
+                    noteTitle = currentNoteTitle,
+                    isLectureMode = true
                 )
-
-                scope.launch {
-                    try {
-                        val result = GeminiOcrService.transcribeAudioWithGemini(
-                            context = context,
-                            audioFile = savedFile,
-                            onProgress = { status ->
-                                transcriptionProgress = status
-                                com.example.service.LectureRecordingService.updateStatus(
-                                    context,
-                                    isPaused = false,
-                                    durationText = "Оцифровка",
-                                    noteTitle = status
-                                )
-                            }
-                        )
-                        withContext(Dispatchers.Main) {
-                            if (result.isSuccess) {
-                                val text = result.getOrNull().orEmpty()
-                                if (text.isNotBlank()) {
-                                    val cleaned = SpeechPostProcessor.process(
-                                        text = text,
-                                        enableSmartPunctuation = preferencesManager.isSmartPunctuationSync(),
-                                        replacements = preferencesManager.getWordReplacementsSync()
-                                    )
-                                    val formatted = if (durationMinutes >= 5) {
-                                        val includeTimestamps = preferencesManager.isTimestampsInLectureSync()
-                                        if (includeTimestamps) {
-                                            "[$durationMinutes мин]\n$cleaned"
-                                        } else {
-                                            cleaned
-                                        }
-                                    } else {
-                                        formatRecognizedChunk(cleaned)
-                                    }
-                                    onTextAppendedCallback?.invoke(formatted)
-                                }
-                            } else {
-                                val err = result.exceptionOrNull()?.localizedMessage
-                                if (!err.isNullOrBlank() && !err.contains("API-ключ")) {
-                                    onErrorCallback?.invoke(err)
-                                }
-                            }
-                            isTranscribing = false
-                            transcriptionProgress = ""
-                        }
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "Transcription failed", t)
-                        withContext(Dispatchers.Main) {
-                            isTranscribing = false
-                            transcriptionProgress = ""
-                            val errMsg = if (t is OutOfMemoryError) "Недостаточно памяти для оцифровки длинной записи" else (t.localizedMessage ?: "Сбой расшифровки звука")
-                            onErrorCallback?.invoke(errMsg)
-                        }
-                    } finally {
-                        com.example.service.LectureRecordingService.stop(context)
-                    }
-                }
-            } else {
-                com.example.service.LectureRecordingService.stop(context)
             }
         } else {
             com.example.service.LectureRecordingService.stop(context)

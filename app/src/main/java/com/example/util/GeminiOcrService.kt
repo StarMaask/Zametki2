@@ -771,7 +771,7 @@ object GeminiOcrService {
                 put("contents", contents)
 
                 put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.3)
+                    put("temperature", 0.0)
                     put("maxOutputTokens", 65536)
                 })
             }
@@ -786,8 +786,9 @@ object GeminiOcrService {
             if (responseCode in 200..299) {
                 val responseText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 val parsedText = extractTextFromResponse(responseText)
-                if (parsedText.isNotBlank()) {
-                    Result.success(parsedText)
+                val cleaned = SpeechPostProcessor.collapseRepetitionLoops(parsedText)
+                if (cleaned.isNotBlank()) {
+                    Result.success(cleaned)
                 } else {
                     Result.failure(Exception("ИИ вернул пустой текст расшифровки."))
                 }
@@ -954,7 +955,7 @@ object GeminiOcrService {
                 put("contents", contents)
 
                 put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.3)
+                    put("temperature", 0.0)
                     put("maxOutputTokens", 65536)
                 })
             }
@@ -969,8 +970,9 @@ object GeminiOcrService {
             if (responseCode in 200..299) {
                 val responseText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 val parsedText = extractTextFromResponse(responseText)
-                if (parsedText.isNotBlank()) {
-                    Result.success(parsedText)
+                val cleaned = SpeechPostProcessor.collapseRepetitionLoops(parsedText)
+                if (cleaned.isNotBlank()) {
+                    Result.success(cleaned)
                 } else {
                     Result.failure(Exception("ИИ вернул пустой текст расшифровки."))
                 }

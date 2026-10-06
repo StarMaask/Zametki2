@@ -59,33 +59,93 @@ object SpeechPostProcessor {
     )
 
     /**
-     * Eliminates degenerate repetition loops (e.g. "вот, вот, вот, вот...", "да, да, да...",
-     * or repetitive phrases) frequently caused by autoregressive decoding during pauses or silence.
+     * Eliminates degenerate repetition loops (e.g. "вот, вот, вот, вот...", "слово. слово. слово...",
+     * or repeating multi-word phrases) frequently caused by autoregressive decoding during pauses or silence.
      */
     fun collapseRepetitionLoops(text: String): String {
         if (text.isBlank()) return text
         var res = text
 
-        // 1. Single word repetition loops with any punctuation (commas, dots, spaces, dashes)
-        // Matches 3 or more occurrences of the same word (e.g. "вот, вот, вот...", "да, да, да...")
-        res = res.replace(Regex("(?iu)\\b([\\p{L}\\p{Nd}]+)(?:[\\s,;—\\-]+(?i:\\1)){2,}\\b")) { matchResult ->
+        // 1. Token-level N-gram repetition loop collapse (handles 1-word up to 12-word repeating phrases)
+        // This is O(N) and immune to catastrophic regex backtracking or punctuation discrepancies.
+        res = collapseTokenRepetitionLoops(res)
+
+        // 2. Single word repetition loops with any punctuation (commas, dots, spaces, dashes, newlines)
+        res = res.replace(Regex("(?iU)\\b([\\p{L}\\p{Nd}]+)(?:[\\s,;:.!?—\\-\n\r]+(?i:\\1)){2,}\\b")) { matchResult ->
             matchResult.groupValues[1]
         }
 
-        // 2. Short multi-word phrase loops (2-4 words) repeated 2+ additional times
-        res = res.replace(Regex("(?iu)\\b([\\p{L}\\p{Nd}]+(?:\\s+[\\p{L}\\p{Nd}]+){1,3})(?:[\\s,;—\\-]+(?i:\\1)){2,}\\b")) { matchResult ->
-            matchResult.groupValues[1]
-        }
-
-        // 3. Cross-line word repetition loops (e.g. "вот,\nвот,\nвот")
-        res = res.replace(Regex("(?iu)\\b([\\p{L}\\p{Nd}]+)(?:[\\s,;.—\\-\n\r]+(?i:\\1)){2,}\\b")) { matchResult ->
+        // 3. Multi-word phrase loops (2-5 words) repeated 2+ additional times
+        res = res.replace(Regex("(?iU)\\b([\\p{L}\\p{Nd}]+(?:\\s+[\\p{L}\\p{Nd}]+){1,4})(?:[\\s,;:.!?—\\-\n\r]+(?i:\\1)){2,}\\b")) { matchResult ->
             matchResult.groupValues[1]
         }
 
         // 4. Clean leftover consecutive duplicate punctuation or spaces
         res = res.replace(Regex("([,;])\\s*[,;]+"), "$1")
+        res = res.replace(Regex("([.!?])\\s*\\1+"), "$1")
         res = res.replace(Regex("[ \\t]{2,}"), " ")
         return res.trim()
+    }
+
+    /**
+     * Scans tokens to detect and collapse repetitive sequences of length 1 to 12 words
+     * that repeat 3 or more times consecutively.
+     */
+    private fun collapseTokenRepetitionLoops(input: String): String {
+        val lines = input.split("\n")
+        val processedLines = lines.map { line ->
+            if (line.isBlank()) return@map line
+            val tokens = line.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (tokens.size < 3) return@map line
+
+            // Normalized token for comparison (lowercase, trimmed punctuation)
+            val normalized = tokens.map { it.lowercase().replace(Regex("[^\\p{L}\\p{Nd}]"), "") }
+
+            val resultTokens = mutableListOf<String>()
+            var i = 0
+            val n = tokens.size
+
+            while (i < n) {
+                var foundLoop = false
+                // Check pattern lengths from 1 to 10 tokens
+                val maxPatternLen = minOf(10, (n - i) / 3)
+                for (pLen in 1..maxPatternLen) {
+                    val pattern = normalized.subList(i, i + pLen)
+                    // Ensure the pattern is non-empty
+                    if (pattern.all { it.isEmpty() }) continue
+
+                    var matchCount = 1
+                    var cursor = i + pLen
+                    while (cursor + pLen <= n) {
+                        val candidate = normalized.subList(cursor, cursor + pLen)
+                        if (candidate == pattern) {
+                            matchCount++
+                            cursor += pLen
+                        } else {
+                            break
+                        }
+                    }
+
+                    // If repeated 3 or more times consecutively, keep only 1 occurrence!
+                    if (matchCount >= 3) {
+                        for (k in 0 until pLen) {
+                            resultTokens.add(tokens[i + k])
+                        }
+                        i = cursor
+                        foundLoop = true
+                        break
+                    }
+                }
+
+                if (!foundLoop) {
+                    resultTokens.add(tokens[i])
+                    i++
+                }
+            }
+
+            resultTokens.joinToString(" ")
+        }
+        return processedLines.joinToString("\n")
     }
 
     /**
