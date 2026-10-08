@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Foreground service that runs audio-to-text speech transcription in the background.
@@ -118,6 +119,7 @@ class AudioTranscriptionForegroundService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
     private var transcriptionJob: Job? = null
+    private var currentProcessingAudioPath: String? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -154,8 +156,15 @@ class AudioTranscriptionForegroundService : Service() {
             return START_NOT_STICKY
         }
 
+        // If the same audio file is already actively being processed by a running job, avoid restarting it
+        if (isTranscribing && currentProcessingAudioPath == audioFile.absolutePath && transcriptionJob?.isActive == true) {
+            Log.d(TAG, "Audio transcription already active for: ${audioFile.name}, ignoring duplicate start request")
+            return START_NOT_STICKY
+        }
+
         isTranscribing = true
         currentNoteId = noteId
+        currentProcessingAudioPath = audioFile.absolutePath
         currentStatus = "Подготовка аудио к обработке ИИ..."
 
         // Start as foreground service immediately
@@ -246,6 +255,10 @@ class AudioTranscriptionForegroundService : Service() {
                 val errorMsg = result.exceptionOrNull()?.localizedMessage ?: "Сбой обработки аудио"
                 handleTranscriptionFailure(noteId, noteTitle, errorMsg)
             }
+        } catch (c: CancellationException) {
+            Log.d(TAG, "Transcription coroutine was cancelled normally")
+            // Re-throw so coroutine cancellation machinery functions correctly without surfacing errors
+            throw c
         } catch (t: Throwable) {
             Log.e(TAG, "Transcription failed with exception", t)
             val errorMsg = if (t is OutOfMemoryError) {
@@ -458,6 +471,7 @@ class AudioTranscriptionForegroundService : Service() {
     private fun stopForegroundService() {
         isTranscribing = false
         currentStatus = ""
+        currentProcessingAudioPath = null
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()

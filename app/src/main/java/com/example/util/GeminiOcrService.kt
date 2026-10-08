@@ -25,9 +25,25 @@ object GeminiOcrService {
 
     private val OCR_MODELS = listOf(
         "gemini-3.5-flash",
-        "gemini-flash-latest",
-        "gemini-3.1-flash-lite-preview"
+        "gemini-3.1-pro-preview"
     )
+
+    private fun buildPermissiveSafetySettings(): JSONArray {
+        val categories = listOf(
+            "HARM_CATEGORY_HARASSMENT",
+            "HARM_CATEGORY_HATE_SPEECH",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "HARM_CATEGORY_DANGEROUS_CONTENT"
+        )
+        val arr = JSONArray()
+        for (cat in categories) {
+            arr.put(JSONObject().apply {
+                put("category", cat)
+                put("threshold", "BLOCK_NONE")
+            })
+        }
+        return arr
+    }
 
     data class DocumentAnalysisResult(
         val summary: String,
@@ -359,9 +375,23 @@ object GeminiOcrService {
     private fun extractTextFromResponse(jsonResponse: String): String {
         return try {
             val root = JSONObject(jsonResponse)
+
+            // Check if entire prompt was blocked
+            val promptFeedback = root.optJSONObject("promptFeedback")
+            val blockReason = promptFeedback?.optString("blockReason")
+            if (!blockReason.isNullOrBlank()) {
+                Log.w("GeminiOcrService", "Gemini prompt was blocked: $blockReason")
+            }
+
             val candidates = root.optJSONArray("candidates") ?: return ""
             if (candidates.length() == 0) return ""
             val firstCandidate = candidates.getJSONObject(0)
+
+            val finishReason = firstCandidate.optString("finishReason", "")
+            if (finishReason == "SAFETY") {
+                Log.w("GeminiOcrService", "Candidate blocked due to SAFETY filter")
+            }
+
             val content = firstCandidate.optJSONObject("content") ?: return ""
             val parts = content.optJSONArray("parts") ?: return ""
             val sb = StringBuilder()
@@ -382,7 +412,13 @@ object GeminiOcrService {
                     result = result.removeSuffix("```").trim()
                 }
             }
-            SpeechPostProcessor.collapseRepetitionLoops(result)
+            // First try collapsing loops, but if loop collapse wipes everything, preserve original
+            val collapsed = SpeechPostProcessor.collapseRepetitionLoops(result)
+            if (collapsed.isNotBlank()) {
+                collapsed
+            } else {
+                result
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             ""
@@ -771,9 +807,11 @@ object GeminiOcrService {
                 put("contents", contents)
 
                 put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.0)
+                    put("temperature", 0.1)
                     put("maxOutputTokens", 65536)
                 })
+
+                put("safetySettings", buildPermissiveSafetySettings())
             }
 
             connection.outputStream.use { os ->
@@ -789,8 +827,10 @@ object GeminiOcrService {
                 val cleaned = SpeechPostProcessor.collapseRepetitionLoops(parsedText)
                 if (cleaned.isNotBlank()) {
                     Result.success(cleaned)
+                } else if (parsedText.isNotBlank()) {
+                    Result.success(parsedText)
                 } else {
-                    Result.failure(Exception("ИИ вернул пустой текст расшифровки."))
+                    Result.failure(Exception("Речь в аудиозаписи не обнаружена (тишина или неразборчивый звук)."))
                 }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
@@ -955,9 +995,11 @@ object GeminiOcrService {
                 put("contents", contents)
 
                 put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.0)
+                    put("temperature", 0.1)
                     put("maxOutputTokens", 65536)
                 })
+
+                put("safetySettings", buildPermissiveSafetySettings())
             }
 
             connection.outputStream.use { os ->
@@ -973,8 +1015,10 @@ object GeminiOcrService {
                 val cleaned = SpeechPostProcessor.collapseRepetitionLoops(parsedText)
                 if (cleaned.isNotBlank()) {
                     Result.success(cleaned)
+                } else if (parsedText.isNotBlank()) {
+                    Result.success(parsedText)
                 } else {
-                    Result.failure(Exception("ИИ вернул пустой текст расшифровки."))
+                    Result.failure(Exception("Речь в аудиозаписи не обнаружена (тишина или неразборчивый звук)."))
                 }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
